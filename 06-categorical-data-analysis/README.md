@@ -1,6 +1,5 @@
 # Categorical Data Analysis
 
-Four computer assignments from Stockholm University's Classification and Analysis of Categorical Data course, completed with Ziyi Wang.
 
 ## Contents
 
@@ -9,7 +8,6 @@ Four computer assignments from Stockholm University's Classification and Analysi
 - `assignment-3` - hierarchical log-linear models, interaction structure, likelihood-ratio tests, AIC, and BIC.
 - `assignment-4` - logistic model selection and predictive evaluation, including ROC-based comparisons.
 
-Each folder contains the final report and the corresponding R Markdown or Quarto source. Course data and assignment specifications are excluded.
 
 ## Tools
 
