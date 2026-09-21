@@ -4,7 +4,7 @@ Selected work from the Introduction to Biostatistics course, progressing from de
 
 ## Contents
 
-- `assignment-1` - Swedish colon-cancer incidence and population-rate analysis. The report was produced with Andri Thor Stefansson, Nicolas Ackermann, Keyan Li, and Linli Xu.
+- `assignment-1` - Swedish colon-cancer incidence and population-rate analysis. 
 - `assignment-2` - development and evaluation of a coronary-heart-disease prediction model, including discrimination and calibration.
 - `final-project` - causal analysis of maternal smoking and low birth weight using regression, standardization, and marginal effect measures.
 
