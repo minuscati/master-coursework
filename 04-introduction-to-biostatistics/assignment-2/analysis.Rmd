@@ -1,0 +1,694 @@
+---
+title: "Assignment 2(1-6)"
+author: "Group 1"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+## 0.Data processing
+
+```{r}
+pacman::p_load(char = c(
+  "tidyverse","rms","haven","mgcv","epitools",
+  "geepack","skimr","pROC","tableone","emmeans","glmtoolbox", "rmda",
+  "CalibrationCurves","dcurves", "MASS", "ggeffects", "ggplot2", "patchwork", "pROC"
+), install = FALSE)
+```
+
+
+
+
+```{r}
+set.seed(1234)
+# read in the data
+data("wcgs", package = "epitools")
+
+# create factors from var ditpat0 with levels B and A in stead of 0 and 1
+wcgs$dibpat0f <- factor(wcgs$dibpat0,
+                        levels = 0:1,
+                        labels = c("B", "A"))
+
+# create categories for age
+wcgs$agegroup <- cut(
+  wcgs$age0,
+  breaks = c(39, 45, 55, 60),
+  include.lowest = TRUE,
+  right = FALSE
+)
+
+# binary variable for smoker or not
+wcgs$smoker <- ifelse(wcgs$ncigs0 > 0, 1, 0)
+wcgs$smokerf <- factor(wcgs$smoker,
+                       levels = c(0, 1),
+                       labels = c("No", "Yes"))
+
+# convert height from inches to cm
+wcgs$heightcm <- wcgs$height0 * 2.54
+wcgs$weightkg <- wcgs$weight0 * 0.45359237
+
+wcgs$bmi <- wcgs$weightkg / (wcgs$heightcm / 100)^2
+wcgs$bmicat <- cut(
+  wcgs$bmi,
+  breaks = c(0, 25, 30, 40),
+  include.lowest = TRUE,
+  right = FALSE
+)
+
+
+wcgs$cholmmol <- wcgs$chol0 / 39
+wcgs$cholmmol <- ifelse(wcgs$cholmmol < 15, wcgs$cholmmol, NA)
+wcgs$sbp10 <- wcgs$sbp0 / 10
+
+# Create categories of sbp (systolic blood pressure). Make sure to have the lowest and highest
+wcgs$sbpcat <- cut(
+  wcgs$sbp0,
+  breaks = c(0, 140, 240),
+  include.lowest = TRUE,
+  right = FALSE
+)
+
+# For use when tabulating the data you can create labels
+wcgs$chd69f <- factor(
+  wcgs$chd69,
+  levels = c(0, 1),
+  labels = c("No", "Yes")
+)
+
+
+wcgs$arcus0f <- factor(
+  wcgs$arcus0,
+  levels = c(0, 1),
+  labels = c("No", "Yes")
+)
+
+d <- wcgs %>%
+  dplyr::select(
+    id,
+    agegroup,
+    age0,
+    cholmmol,
+    sbp10,
+    bmi,
+    bmicat,
+    smokerf,
+    arcus0,
+    arcus0f,
+    dibpat0f,
+    chd69,
+    chd69f
+  )
+
+## complete case
+dc <- d %>% drop_na()
+
+nrow(d)   
+nrow(dc)  
+
+sapply(dc, class)
+```
+
+## 1. Table 1
+
+```{r}
+vars_cont <- c("age0", "sbp10", "cholmmol", "bmi")
+vars_cat  <- c("agegroup", "smokerf", "arcus0f", "dibpat0f", "chd69f")
+
+table1 <- CreateTableOne(
+  vars       = c(vars_cont, vars_cat),
+  data       = dc,
+  factorVars = vars_cat
+)
+
+# print Table 1
+print(table1, showAllLevels = TRUE, quote = FALSE, noSpaces = TRUE)
+summary(table1)
+```
+
+## 2. Overall risk or overall rate(Need to be checked)
+
+(a) The outcome of interest is the presence of coronary heart disease (CHD), represented by the binary variable 'chd69'.
+
+(b) 
+
+Age — risk increases with older age;
+
+Systolic blood pressure (sbp10) — higher blood pressure increases CHD risk;
+
+Serum cholesterol (cholmmol) — elevated cholesterol is a well-established risk factor;
+
+Body mass index (bmi) — overweight and obesity are associated with higher CHD risk;
+
+Smoking (smokerf) — current smokers have increased CHD incidence;
+
+Diabetes (dibpat0f) — presence of diabetes increases CHD risk;
+
+Corneal arcus (arcus0f) — a possible visual indicator of lipid abnormalities.
+
+```{r}
+# (c) 
+n_total <- nrow(d)
+n_total
+
+n_total_no_na <- nrow(dc)
+n_total_no_na
+
+# (d) overall prevalence of the disease
+prev_chd <- mean(dc$chd69 == 1)
+prev_chd  
+```
+
+## 3. Building the model and choosing predictors
+
+### (a)
+
+```{r}
+# We start with a full model: all known risk factors.
+# chd69: 0/1; 
+# predictors：age0, sbp10, cholmmol, bmi, smokerf, arcus0f, dibpat0f
+
+dc$chd69 <- as.factor(dc$chd69) 
+mod_full <- glm(
+  chd69 ~ age0 + sbp10 + cholmmol + bmi +
+    smokerf + arcus0f + dibpat0f,
+  data   = dc,
+  family = binomial(link = "logit")
+)
+
+summary(mod_full)
+
+mod_step <- stepAIC(mod_full, direction = "both", trace = TRUE)
+
+# Compare AIC
+AIC(mod_full, mod_step)
+```
+
+Using the AIC criterion, all main variables were preserved.
+
+### (b)
+
+#### Categorical Variables
+
+```{r}
+# ---- 1. Create BMI group variables ----
+# train_data$bmigroup <- cut(
+#   train_data$bmi,
+#   breaks = c(-Inf, 18.5, 25, 30, Inf),
+#   labels = c("Underweight", "Normal", "Overweight", "Obese")
+# )
+
+# categorical bmi is loaded as bmicat
+
+# ---- 2. Four Models ----
+m1 <- glm(chd69 ~ age0 + sbp10 + cholmmol + bmi + smokerf + arcus0f + dibpat0f,
+          data = dc, family = binomial)    # baseline
+
+m2 <- glm(chd69 ~ agegroup + sbp10 + cholmmol + bmi + smokerf + arcus0f + dibpat0f,
+          data = dc, family = binomial)    # age categorical
+
+m3 <- glm(chd69 ~ age0 + sbp10 + cholmmol + bmicat + smokerf + arcus0f + dibpat0f,
+          data = dc, family = binomial)    # BMI categorical
+
+m4 <- glm(chd69 ~ agegroup + sbp10 + cholmmol + bmicat + smokerf + arcus0f + dibpat0f,
+          data = dc, family = binomial)    # both categorical
+
+# ---- 3. Model Comparison ----
+AIC(m1, m2, m3, m4)
+
+anova(m1, m2, test = "LRT")  # Comparing Continuous Age vs. agegroup
+anova(m1, m3, test = "LRT")  # Comparison of Continuous vs. Grouped BMI
+
+```
+
+Four logistic regression models were compared to evaluate whether age and BMI should be treated as continuous or categorical predictors. Model comparisons based on likelihood-ratio tests and AIC indicated no significant improvement when either variable was categorized (p = 0.49 for BMI, p = 1 for age). Therefore, both age and BMI were retained as continuous variables in the final prediction model, as this approach preserves statistical power and model simplicity without loss of predictive accuracy.
+
+#### Interaction Terms
+
+```{r}
+#   
+# 
+# ---- 1. Age × Smoking ----
+m_age_smoke <- glm(chd69 ~ age0 * smokerf + sbp10 + cholmmol + bmi + arcus0f + dibpat0f,
+                   data = dc, family = binomial)
+p1 <- ggpredict(m_age_smoke, terms = c("age0", "smokerf"))
+
+g1 <- plot(p1) +
+  labs(title = "Age x Smoking",
+       x = "Age", y = "Predicted probability") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+# ---- 2. Cholesterol × BMI ----
+m_chol_bp <- glm(chd69 ~ cholmmol * bmi + age0 + smokerf + sbp10 + arcus0f + dibpat0f,
+                 data = dc, family = binomial)
+p2 <- ggpredict(m_chol_bp, terms = c("bmi", "cholmmol [quantile]"))
+p2$group <- factor(round(as.numeric(as.character(p2$group)), 1))
+
+g2 <- plot(p2) +
+  labs(title = "Cholesterol x BMI",
+       x = "BMI", y = "Predicted probability") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+# ---- 3. Age × Arcus ----
+m_age_arcus <- glm(
+  chd69 ~ age0 * arcus0f + sbp10 + cholmmol + smokerf + bmi + dibpat0f,
+  data = dc, family = binomial
+)
+
+p3 <- ggpredict(m_age_arcus, terms = c("age0", "arcus0f"))
+
+g3 <- plot(p3) +
+  labs(
+    title = "Age x Arcus",
+    x = "Age",
+    y = "Predicted probability",
+    color = "Arcus (0 = No, 1 = Yes)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+
+# ---- 4. Smoking × Blood pressure ----
+m_smoke_bp <- glm(chd69 ~ smokerf * sbp10 + age0 + cholmmol + bmi + arcus0f + dibpat0f,
+                  data = dc, family = binomial)
+p4 <- ggpredict(m_smoke_bp, terms = c("sbp10", "smokerf"))
+
+g4 <- plot(p4) +
+  labs(title = "Smoking x Blood Pressure",
+       x = "Systolic BP (x10 mmHg)", y = "Predicted probability") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+# ---- Combine into 2×2 grid ----
+(g1 + g2) / (g3 + g4)
+
+```
+
+The plots show that the relationships for age × smoking and smoking × blood pressure are approximately parallel, indicating no meaningful interaction effects. In contrast, the curves for cholesterol × BMI and age × arcus are clearly non-parallel, suggesting potential interactions between these variables in influencing CHD risk.
+
+##### Try all interactions and test for significance.
+
+```{r}
+
+#  Define the main effects model
+m_main <- glm(
+  chd69 ~ age0 + sbp10 + cholmmol + bmi + smokerf + arcus0f + dibpat0f,
+  data = dc,
+  family = binomial
+)
+
+# All candidate interaction combinations
+vars <- c("age0", "sbp10", "cholmmol", "bmi", "smokerf", "arcus0f", "dibpat0f")
+interactions <- combn(vars, 2, simplify = FALSE)
+
+results <- data.frame(
+  Interaction = character(),
+  Df = numeric(),
+  Deviance = numeric(),
+  P_value = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# Iteratively test each interaction term
+for (pair in interactions) {
+  formula_int <- as.formula(
+    paste("chd69 ~", paste(vars, collapse = " + "), "+", paste(pair, collapse = ":"))
+  )
+  
+  m_int <- glm(formula_int, data = dc, family = binomial)
+  
+  lrt <- anova(m_main, m_int, test = "LRT")
+  
+  res_row <- data.frame(
+    Interaction = paste(pair, collapse = ":"),
+    Df = lrt$Df[2],
+    Deviance = round(lrt$Deviance[2], 3),
+    P_value = round(lrt$`Pr(>Chi)`[2], 5)
+  )
+  
+  results <- rbind(results, res_row)
+}
+
+results <- results[order(results$P_value), ]
+rownames(results) <- NULL
+results
+
+```
+
+Likelihood ratio tests for all pairwise interactions showed that cholesterol × BMI (p = 0.0049) and age × arcus (p = 0.0385) significantly improved model fit, suggesting that the effects of cholesterol on CHD risk vary with BMI, and that the influence of age differs depending on the presence of corneal arcus. Other tested interactions were not significant (p \> 0.05) and were not included in the final model.
+
+
+
+
+```{r}
+
+m_no_int <- glm(chd69 ~ age0 + sbp10 + cholmmol + bmi + smokerf + arcus0f + dibpat0f,
+                family = binomial, data = dc)
+
+m_final <- glm(
+  chd69 ~ age0 + sbp10 + cholmmol*bmi + age0*arcus0f + smokerf + dibpat0f,
+  data = dc,
+  family = binomial
+)
+summary(m_final)
+anova(m_no_int, m_final, test = "LRT")
+AIC(m_no_int, m_final)
+
+# roc_main <- roc(dc$chd69, fitted(m_no_int))
+# roc_final <- roc(dc$chd69, fitted(m_final))
+# auc(roc_main); auc(roc_final)
+
+```
+
+Interaction terms were included because adding cholmmol × bmi and age0 × arcus0f significantly improved model fit ($\Delta$Deviance = 12.16, p = 0.0023) and reduced AIC from 1594.2 to 1586.1. These results indicate that the effects of cholesterol on CHD risk vary with BMI, and that the impact of age may differ depending on the presence of corneal arcus.
+
+## (c)
+
+```{r}
+dc$pred_risk <- predict(m_final, type = "response")
+predicted_class <- ifelse(dc$pred_risk > 0.5, 1, 0)
+accuracy <- mean(predicted_class == dc$chd69, na.rm = TRUE)
+print(accuracy)
+```
+
+------------------------------------------------------------------------
+
+## 4. Discrimination
+
+### 4a
+
+The final logistic regression model can be written as:
+
+$$
+\text{logit}\left(P(\text{CHD}_{69}=1)\right) =
+\beta_0 +
+\beta_1 \cdot \text{age0} +
+\beta_2 \cdot \text{sbp10} +
+\beta_3 \cdot \text{cholmmol} +
+\beta_4 \cdot \text{bmi} +
+\beta_5 \cdot \text{smokerf} +
+\beta_6 \cdot \text{arcus0f} +
+\beta_7 \cdot \text{dibpat0f} +
+\beta_8 \cdot (\text{cholmmol} \times \text{bmi}) +
+\beta_9 \cdot (\text{age0} \times \text{arcus0f})
+$$
+
+These two interactions, cholesterol × BMI and age × corneal arcus, improved the model fit based on the likelihood ratio test and resulted in a reduction in AIC.
+
+```{r}
+#4a
+m_final       
+
+roc_final <- roc(dc$chd69, dc$pred_risk)
+
+plot(roc_final,
+     col  = "#1E88E5",
+     lwd  = 2,
+     main = "ROC Curve for Final Model",
+     xlim=c(1.0, 0.0),
+     ylim=c(0.0, 1.0))
+
+
+
+auc_value    <- auc(roc_final)
+ci_auc_value <- ci.auc(roc_final)
+
+auc_value
+ci_auc_value
+```
+
+A ROC curve is shown in Figure ROC Curve (blue line). The model demonstrates a moderate ability to discriminate between CHD cases and non-cases, AUC was estimated as 0.7543, and 95% CI: 0.7246–0.7839.
+
+### 4b
+
+```{r}
+#4b
+
+coords_best <- coords(
+  roc_final,
+  x = "best",
+  best.method = "youden",
+  ret = c("threshold", "sensitivity", "specificity")
+)
+
+coords_best
+```
+
+CHD is relatively rare in this dataset with about 8 percent of individuals diagnosed. Even with this imbalance the model still shows solid discrimination ability. Based on Youden’s Index: $y = sensitivity + specificity - 1$, the optimal cutoff is approximately 0.096. At this threshold the model achieves a sensitivity of about 0.67 and a specificity of about 0.74.
+
+### 4c
+
+To adjust for optimism in the predictions, we can use the bootstrapping method using 200 repetitions.\n
+
+```{r}
+Bootstrap_iterations <- 200
+auc_boot <- numeric(Bootstrap_iterations)
+auc_orig <- auc(roc_final)
+
+for (i in 1:Bootstrap_iterations) {
+  # bootstrap sample
+  idx <- sample(1:nrow(dc), replace = TRUE)
+  boot_data <- dc[idx, ]
+  
+  # fit same model
+  boot_model <- glm(
+    chd69 ~ age0 + sbp10 + cholmmol*bmi + age0*arcus0f + smokerf + dibpat0f,
+    data = boot_data, 
+    family = binomial
+  )
+  
+  # Suppress Messages is used here to prevent spam
+  # messages from the roc function.
+ boot_roc <- suppressMessages(
+    roc(boot_data$chd69, fitted(boot_model))
+  )
+
+  auc_boot[i] <- auc(boot_roc)
+}
+
+
+auc_adj <- mean(auc_boot)
+ci_boot <- quantile(auc_boot, probs = c(0.025, 0.975))
+
+auc_orig
+auc_adj
+ci_boot
+```
+
+Internal validation using 200 bootstrap samples suggested minimal optimism, as the bias-adjusted AUC (0.760) was very similar to the original AUC (0.754), with a 95% CI of 0.734 to 0.787.
+
+### 4d
+
+```{r}
+K <- 10
+folds <- sample(rep(1:K, length.out = nrow(dc)))
+
+auc_cv <- numeric(K)
+
+for (k in 1:K) {
+  # Training and testing split
+  test_idx <- which(folds == k)
+  train_data <- dc[-test_idx, ]
+  test_data  <- dc[test_idx, ]
+  
+  # Fit the same final model structure
+  m_cv <- glm(chd69 ~ age0 + sbp10 + cholmmol*bmi + age0*arcus0f + smokerf + dibpat0f,
+              data = train_data,
+              family = binomial)
+  
+  # Predict on test fold
+  pred_prob <- predict(m_cv, newdata = test_data, type = "response")
+  
+  # Save fold AUC
+  auc_cv[k] <- suppressMessages(auc(roc(test_data$chd69, pred_prob)))
+}
+
+auc_cv_mean <- mean(auc_cv)
+auc_cv_ci <- quantile(auc_cv,
+                      probs = c(0.025, 0.975)) 
+
+auc_cv_mean
+auc_cv_ci
+```
+
+To further validate model generalizability, we performed 10-fold cross-validation, obtaining:
+
+```{=latex}
+\begin{table}[h!]
+\centering
+\caption{10-fold Cross-Validation AUC Estimates for the Final Model}
+\begin{tabular}{lc}
+\hline
+\textbf{Metric} & \textbf{Estimate} \\
+\hline
+Mean AUC & 0.75 \\
+95\% Confidence Interval & 0.68 -- 0.82 \\
+\hline
+\end{tabular}
+\end{table}
+```
+
+Using 10-fold cross-validation, the model reached a mean AUC of 0.74 with a 95% confidence interval of 0.68 to 0.80. The results are consistent with the original and bootstrap-adjusted AUC estimates, so the model seems to perform similarly on new data.
+
+------------------------------------------------------------------------
+
+## 5.Calibration
+
+### 5a
+
+A useful page to understand calibration process: <https://cran.r-project.org/web/packages/CalibrationCurves/vignettes/CalibrationCurves.html>
+
+```{r}
+calibration_data <- data.frame(
+  Actual = as.integer(dc$chd69)-1, 
+  Predicted_Prob = dc$pred_risk
+)
+calPerf <- val.prob.ci.2(
+  calibration_data$Predicted_Prob, 
+  calibration_data$Actual,
+  logistic.cal = TRUE, 
+  col.log = "#FFC107",
+  xlim=c(0, range(dc$pred_risk)[2]),
+  )
+```
+
+```{r}
+calPerf
+```
+
+By observing the CalibrationCurve object calPerf, we can extract the slope and intercept of the calibration model. The slope is 1 and the corresponding intercept is -1.136358e-12, which is extremely small and effectively zero. This indicates that the curve lies very close to the line y = x, demonstrating excellent calibration performance.
+
+### 5b
+
+```{r}
+hltest(m_final)
+```
+
+Interpretation: The null hypothesis, $H_0$ of Hosmer and Lemeshow method is that the model fits the data well. Here we can see the p-value of HL test is 0.65367, meaning that we can't reject the null hypothesis. It suggests that there is no evidence of poor fit, i.e., our model is well-calibrated.
+
+### 5c
+
+```{r}
+m_agegroup <- glm(chd69 ~ agegroup, 
+                      family = binomial, 
+                      data = dc)
+
+summary(m_agegroup)
+```
+
+```{r}
+ma_pre_pro <- predict(m_agegroup, type = "response")
+roc_ma <- roc(dc$chd69, ma_pre_pro)
+auc(roc_ma)
+```
+
+### 5d
+
+In order to compare two discrimination statistics between two models on the same data, we take the DeLong test. The null hypothesis of Delong test is that AUCs of two models do not differ significantly, that is $AUC_{1}$=$AUC_{2}$.
+
+```{r}
+Delong_result <- roc.test(roc_final, roc_ma, method = "delong")
+print(Delong_result)
+```
+
+We can see that p-value \<2.2e-16\< 0.05, we reject $H_0$, showing that the fitting performance of the model constructed in question 3("m_final") is much better than that of the model including only the agegroup("m_agegroup").
+
+### 5e
+
+```{r}
+# Plot ROC for Model 1
+plot(roc_final,
+     col = "#1E88E5",
+     lwd = 2,
+     main = "ROC Curves for Two Models")
+
+# Add ROC for Model 2
+plot(roc_ma,
+     col = "#D81B60",
+     lwd = 2,
+     add = TRUE)
+
+# Add legend
+legend("bottomright",
+       legend = c(
+         paste("final model: AUC =", round(auc(roc_final), 3)),
+         paste("Agegroup model: AUC =", round(auc(roc_ma), 3))
+       ),
+       col = c("#1E88E5", "#D81B60"),
+       lwd = 2)
+```
+
+### 6a
+
+```{r}
+dc$chd69 <- as.numeric(as.character(dc$chd69))
+
+dca_final <- decision_curve(
+  chd69 ~ age0 + sbp10 + cholmmol*bmi + age0*arcus0f + smokerf + dibpat0f,
+  data = dc,
+  family = binomial,
+  thresholds = seq(0, 0.3, by = 0.01),
+  confidence.intervals = FALSE
+)
+
+plot_decision_curve(
+  dca_final,
+  curve.names        = c("Final model", "Treat all", "Treat none"),
+  standardize        = FALSE,
+  cost.benefit.axis  = FALSE,
+  xlim               = c(0, 0.30),      
+  ylim               = c(-0.02, 0.09),  
+  xlab               = "Risk threshold",
+  ylab               = "Net benefit",
+  col                = c("#1E88E5","#D81B60","#004D40"),
+  lwd                = c(3, 2, 2),     
+  lty                = c(1, 1, 1),
+)
+```
+
+The decision curve shows that the final logistic regression model provides a higher net benefit than both default strategies (“Treat All” and “Treat None”) across a wide range of clinically relevant threshold probabilities. Specifically, the model yields a positive net benefit from very low thresholds up to approximately 0.25, indicating that it consistently outperforms treating all patients or treating none within this interval.
+
+The benefit is greatest at low thresholds (around 0.08–0.15), where the model’s net benefit is clearly superior to both default strategies. As the threshold increases beyond 0.20–0.25, the model’s net benefit approaches the “Treat None” strategy and provides little additional value.
+
+### 6b
+
+The model is clinically useful, as its net benefit is higher than both the “Treat All” and “Treat None” strategies across thresholds from 0 to about 0.25. The model provides the largest improvement over the default strategies at lower thresholds, particularly around 0.10. Beyond approximately 0.20–0.25, its net benefit becomes similar to that of “Treat None,” indicating little additional clinical value at higher thresholds.
+
+### 6c
+
+```{r}
+dca_final <- decision_curve(
+  chd69 ~ age0 + sbp10 + cholmmol + bmi + smokerf + arcus0f + dibpat0f +
+    cholmmol:bmi + age0:arcus0f,
+  data       = dc,
+  family     = binomial(link = "logit"),
+  thresholds = seq(0, 0.30, by = 0.01),
+  confidence.intervals = FALSE
+)
+
+dca_agegroup <- decision_curve(
+  chd69 ~ agegroup,
+  data       = dc,
+  family     = binomial(link = "logit"),
+  thresholds = seq(0, 0.30, by = 0.01),
+  confidence.intervals = FALSE
+)
+
+
+plot_decision_curve(
+  list(dca_final, dca_agegroup),
+  curve.names        = c("Final model", "Agegroup model"),
+  standardize        = FALSE,
+  cost.benefit.axis  = FALSE,
+  xlim               = c(0, 0.30),      
+  ylim               = c(-0.02, 0.09),  
+  xlab               = "Risk threshold",
+  ylab               = "Net benefit",
+  col                = c("#1E88E5","#FFC107", "#D81B60","#004D40"),
+  lwd                = c(3, 3, 2, 2),     
+  lty                = c(1, 1, 1, 1),
+)
+
+```
+
+Across nearly the entire threshold range (0–0.25), the final model shows higher net benefit than the agegroup model. The agegroup model’s net benefit drops quickly and becomes close to the “Treat None” strategy around 0.15, indicating limited usefulness. In contrast, the final model maintains positive net benefit up to about 0.25. Overall, the final model consistently provides greater clinical benefit than the simpler agegroup model.

@@ -1,0 +1,377 @@
+---
+title: "CA4"
+format: html
+editor: visual
+---
+
+## Import Data
+
+```{r}
+# read data and delete v1
+data4 <- read.csv("data_ca4.csv")
+data4 <- data4[, !(names(data4) %in% "v1")]
+
+# Combine categories (v5 and v21)
+table(data4$v5)
+data4$v5[data4$v5>1] <- 0
+table(data4$v5)
+
+table(data4$v21)
+data4$v21[data4$v21>0] <- 1
+table(data4$v21)
+```
+
+## Exercise 4:1.1
+
+```{r}
+# fitting multiple logistic regression model
+m_empty <- glm(v2~1, family = binomial, data= data4) # empty model
+m_full <- glm(v2~.,family = binomial, data= data4) # full model
+summary(m_full)
+summary(m_empty)
+```
+
+```{r}
+# stepwise model selection using AIC
+mstep1_AIC <- step(m_empty, direction = "forward", scope = list(upper = m_full), trace = TRUE)
+mstep2_AIC <- step(m_full, direction = "back", trace = FALSE)
+mstep3_AIC <- step(m_full, direction = "both", trace = FALSE)
+summary(mstep2_AIC)
+summary(mstep3_AIC)
+AIC(mstep1_AIC, mstep2_AIC, mstep3_AIC)
+```
+
+```{r}
+# stepwise model selection using BIC
+mstep1_BIC <- step(m_empty, direction = "forward", scope = list(upper = m_full), k=log(nrow(data4)), trace = FALSE)
+mstep2_BIC <- step(m_full, direction = "backward", k=log(nrow(data4)), trace = FALSE)
+mstep3_BIC <- step(m_full, direction = "both", k=log(nrow(data4)), trace = FALSE)
+summary(mstep1_BIC)
+summary(mstep2_BIC)
+summary(mstep3_BIC)
+BIC(mstep1_BIC,mstep2_BIC,mstep3_BIC)
+```
+
+```{r}
+# OR and CI
+exp(cbind(OR = coef(mstep1_AIC), confint(mstep1_AIC)))
+# exp(cbind(OR = coef(mstep2_BIC), confint(mstep2_BIC)))
+```
+
+## Exercise 4:1.2
+
+```{r}
+# HL test
+predprob_AIC <- predict(mstep1_AIC, type = "response") #Obtain predicted probabilities for the full model
+# install.packages("ResourceSelection")
+library(ResourceSelection)
+hoslem.test(data4$v2, predprob_AIC, g=10)
+```
+
+## Exercise 4:1.3
+
+```{r}
+# build confusion matrix
+pred01_AIC <- ifelse(predprob_AIC > 0.5, 1, 0) #Binary classification, cut-off=0.5
+confmatrix <- table(1-data4$v2,1-pred01_AIC)
+dimnames(confmatrix) <- list(Actual = c("Not-survive","Survive"), Predicted = c("Not-survive","Survive"))
+confmatrix
+```
+
+```{r}
+# check
+table(data4$v2)
+table(pred01_AIC)
+tab1 <- addmargins(confmatrix)
+tab1
+```
+
+```{r}
+# calculate metrics
+accuracy1 <- (tab1[1,1]+tab1[2,2])/ tab1[3,3]
+sensitivity1 <- tab1[1,1]/ tab1[1,3]
+specificity1 <- tab1[2,2]/ tab1[2,3]
+cat("Accuracy under cut-off 0.5 is",accuracy1,"\n")
+cat("Sensitivity under cut-off 0.5 is",sensitivity1,"\n")
+cat("Specificity under cut-off 0.5 is",specificity1,"\n")
+```
+
+```{r}
+cuts <- c(0.5, 0.3, 0.7)
+
+for (c in cuts) {
+  cat("Cut-off:", c, "\n")
+  
+  pred01_AIC <- ifelse(predprob_AIC >= c, 1, 0)
+  confmatrix <- table(1-data4$v2,1-pred01_AIC)
+  dimnames(confmatrix) <- list(Actual = c("Not-survive","Survive"), Predicted = c("Not-survive","Survive"))
+  print(confmatrix)
+  
+  tab <- addmargins(confmatrix)
+  accuracy <- (tab[1,1]+tab[2,2])/ tab[3,3]
+  sensitivity <- tab[1,1]/ tab[1,3]
+  specificity <- tab[2,2]/ tab[2,3]
+  cat("Accuracy under cut-off", c, "is",accuracy,"\n")
+  cat("Sensitivity under cut-off", c, "is",sensitivity,"\n")
+  cat("Specificity under cut-off", c, "is",specificity,"\n")
+  cat("\n")
+}
+```
+
+## Exercise 4:1.4
+
+```{r}
+# ROC for full model
+library(pROC)
+predprob_full <- predict(m_full, type = "response")
+roc(data4$v2, predprob_full)
+plot(roc(data4$v2, predprob_full),legacy.axes = TRUE,main = "Full Model")
+```
+
+```{r}
+# ROC for two other models
+predprob_step1AIC <- predict(mstep1_AIC, type = "response")
+predprob_step1BIC <- predict(mstep1_BIC, type = "response")
+roc(data4$v2, predprob_step1AIC)
+plot(roc(data4$v2, predprob_step1AIC),legacy.axes = TRUE, main="AIC model")
+roc(data4$v2, predprob_step1BIC)
+plot(roc(data4$v2, predprob_step1BIC),legacy.axes = TRUE, main="BIC model")
+```
+
+The full model performs best based on AUC.
+
+## Exercise 4:1.5
+
+```{r}
+# LOOCV for full model
+predprob_LOOCV <- matrix(0, nrow = nrow(data4), ncol = 3)
+
+for (i in 1:nrow(data4)){
+  # create training and validation sets
+  data_training <- data4[-i,]
+  data_validation <- data4[i,,drop= FALSE]
+  
+  # fit the model on the training data
+  m_full_l <- glm(v2~., family = binomial, data = data_training)
+  mstep1_AIC_l <- glm(v2~ v3 + v7 + v11 + v14 + v17 + v18 + v21, 
+                      family = binomial, data = data_training)
+  mstep1_BIC_l <- glm(v2~ v3 + v7 + v14 + v21,
+                      family = binomial, data = data_training)
+  
+  
+  # predict the value for the held-out observation
+  predprob_LOOCV[i,1] <- predict(m_full_l, newdata = data_validation, type = "response")
+  predprob_LOOCV[i,2] <- predict(mstep1_AIC_l, newdata = data_validation, type = "response")
+  predprob_LOOCV[i,3] <- predict(mstep1_BIC_l, newdata = data_validation, type = "response")
+}
+
+roc_full <- roc(data4$v2, predprob_LOOCV[,1])
+roc_step1AIC <- roc(data4$v2, predprob_LOOCV[,2])
+roc_step1BIC <- roc(data4$v2, predprob_LOOCV[,3])
+
+roc_full
+roc_step1AIC
+roc_step1BIC
+```
+
+## Exercise 4:2.1
+
+Fitting a decision tree model
+
+1.  split = "information"
+
+```{r}
+library(rpart)
+library(rpart.plot)
+
+
+# information, cp=0.1
+tm_infor01 <- rpart(v2 ~.,method = "class", data=data4, parms = list(split = "information"), cp = 0.1)
+
+#Plot the decision tree
+rpart.plot(tm_infor01, digits=3, 
+           main = "Decision Tree (split = 'information', cp = 0.1)")
+
+```
+
+```{r}
+# information, cp=0.07 
+tm_infor007 <- rpart(v2 ~.,method = "class", data=data4, parms = list(split = "information"), cp = 0.07)
+
+#Plot the decision tree 
+rpart.plot(tm_infor007, digits=3, main = "Decision Tree (split = 'information', cp = 0.07)")
+```
+
+```{r}
+# information, cp=0.05
+tm_infor005 <- rpart(v2 ~.,method = "class", data=data4, parms = list(split = "information"), cp = 0.05)
+
+#Plot the decision tree
+rpart.plot(tm_infor005, digits=3, 
+           main = "Decision Tree (split = 'information', cp = 0.05)") 
+
+```
+
+```{r}
+# information, cp=0.03
+tm_infor003 <- rpart(v2 ~.,method = "class", data=data4, parms = list(split = "information"), cp = 0.03)
+
+#Plot the decision tree
+rpart.plot(tm_infor003, digits=3, 
+           main = "Decision Tree (split = 'information', cp = 0.03)") 
+```
+```{r}
+# information, cp=0.01
+tm_infor001 <- rpart(v2 ~.,method = "class", data=data4, parms = list(split = "information"), cp = 0.01)
+
+#Plot the decision tree
+rpart.plot(tm_infor001, digits=3, 
+           main = "Decision Tree (split = 'information', cp = 0.01)") 
+```
+
+```{r}
+# information, cp=0.005
+tm_infor0005 <- rpart(v2 ~.,method = "class", data=data4, parms = list(split = "information"), cp = 0.005)
+
+#Plot the decision tree
+rpart.plot(tm_infor0005, digits=3, 
+           main = "Decision Tree (split = 'information', cp = 0.005)") 
+```
+
+```{r}
+# information, cp=0.001
+tm_infor0001 <- rpart(v2 ~.,method = "class", data=data4, parms = list(split = "information"), cp = 0.001)
+
+#Plot the decision tree
+rpart.plot(tm_infor0001, digits=3, 
+           main = "Decision Tree (split = 'information', cp = 0.001)") 
+```
+2.  split = "gini"
+
+```{r}
+# gini, cp=0.1
+tm_gini01 <- rpart(v2 ~.,method = "class", data=data4, parms = list(split = "gini"), cp = 0.1)
+
+#Plot the decision tree
+rpart.plot(tm_gini01, digits=3, 
+           main = "Decision Tree (split = 'gini', cp = 0.1)")
+```
+
+```{r}
+# gini, cp=0.07
+tm_gini007 <- rpart(v2 ~.,method = "class", data=data4, parms = list(split = "gini"), cp = 0.07)
+
+#Plot the decision tree
+rpart.plot(tm_gini007, digits=3, 
+           main = "Decision Tree (split = 'gini', cp = 0.07)") 
+```
+
+```{r}
+# gini, cp=0.05
+tm_gini005 <- rpart(v2 ~.,method = "class", data=data4, parms = list(split = "gini"), cp = 0.05)
+
+#Plot the decision tree
+rpart.plot(tm_gini005, digits=3, 
+           main = "Decision Tree (split = 'gini', cp = 0.05)")
+```
+
+```{r}
+# gini, cp=0.03
+tm_gini0001 <- rpart(v2 ~.,method = "class", data=data4, parms = list(split = "gini"), cp = 0.001)
+
+#Plot the decision tree
+rpart.plot(tm_gini0001, digits=3, 
+           main = "Decision Tree (split = 'gini', cp = 0.001)") 
+```
+
+```{r}
+printcp(tm_gini0001)
+plotcp(tm_gini0001)
+```
+
+```{r}
+# gini, cp=0.075
+tm_gini0075 <- rpart(v2 ~.,method = "class", data=data4, parms = list(split = "gini"), cp = 0.075)
+
+#Plot the decision tree
+rpart.plot(tm_gini0075, digits=3, 
+           main = "Decision Tree (split = 'gini', cp = 0.075)") 
+```
+
+## Exercise 4:2.2
+```{r}
+data4$v2 <- as.factor(data4$v2)
+```
+
+```{r}
+# choose the good decision tree
+# information, cp=0.07
+tm_infor007 <- rpart(v2 ~.,method = "class", data=data4, parms = list(split = "information"), cp = 0.07)
+
+# Get predicted probabilities
+predprob_tm <- predict(tm_infor007,type = "prob")[,2]
+
+# calculate AUC
+library(pROC)
+roc(data4$v2, predprob_tm)
+plot(roc(data4$v2, predprob_tm),legacy.axes = TRUE)
+```
+
+```{r}
+# Compare with logistic regression models
+# Decision tree model AUC
+roc_tree <- roc(data4$v2, predprob_tm)
+auc_tree <- auc(roc_tree)
+
+# AIC model AUC 
+roc_AIC <- roc(data4$v2, predict(mstep1_AIC, type = "response"))
+auc_AIC <- auc(roc_AIC)
+
+# BIC model AUC
+roc_BIC <- roc(data4$v2, predict(mstep1_BIC, type = "response"))
+auc_BIC <- auc(roc_BIC)
+
+# Print AUC results for comparison
+print(paste("Decision Tree AUC:", auc_tree))
+print(paste("Logistic Regression AIC Model AUC:", auc_AIC))
+print(paste("Logistic Regression BIC Model AUC:", auc_BIC))
+
+# Plot comparison of ROC curves
+plot(roc_tree, col = "blue", lwd = 2, legacy.axes = TRUE)
+plot(roc_AIC, col = "red", lwd = 2, add = TRUE)
+plot(roc_BIC, col = "green", lwd = 2, add = TRUE)
+
+# Add legend
+legend("bottomright", legend = c(
+  paste("roc_tree (AUC =", round(auc_tree, 3), ")"),
+  paste("roc_AIC (AUC =", round(auc_AIC, 3), ")"),
+  paste("roc_BIC (AUC =", round(auc_BIC, 3), ")")
+), col = c("blue", "red", "green"), lwd = 2)
+```
+
+## Exercise 4:2.3
+
+```{r}
+# Leave-one-out cross-validation, AUC
+predprob_LOOCV <- numeric(nrow(data4)) # Create a vector for the predicted values
+
+for (i in 1:nrow(data4)) {
+ # Create training and validation sets
+ data_training <- data4[-i,]
+ data_validation <- data4[i, ,drop=FALSE]
+
+ # Fit the model on the training data
+ tm1 <- rpart(v2 ~.,method = "class", data=data_training, parms = list(split = "information"), cp = 0.07)
+
+ # Predict the value for the held-out observation
+ predprob_LOOCV[i] <- predict(tm1, newdata = data_validation, type = "prob")[,2]
+}
+
+
+roc(data4$v2, predprob_LOOCV)
+plot(roc(data4$v2,predprob_LOOCV),legacy.axes = TRUE,print.coords = TRUE)
+```
+```{r}
+tm1$cptable
+```
+

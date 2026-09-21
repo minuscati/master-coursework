@@ -1,0 +1,446 @@
+---
+title: "Survival Analysis - Assignment 1"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+date: "2026-02-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+```
+
+## Read packages
+```{r, message=FALSE, warning=FALSE,echo=FALSE}
+library(survival)
+library(bshazard)
+library(biostat3)
+library(ggplot2)
+library(collett)
+```
+
+## Q1 
+### a)
+Knowing that $h(t) = \lambda \gamma t^{\gamma-1}$, the cumulative hazard function $H(t)$ can be derived as 
+$$
+H(t) = \int_{0}^t h(u) \, du=\int_{0}^t\lambda \gamma u^{\gamma-1} \, du=\lambda u^\gamma|_0^t=\lambda t^\gamma
+$$
+The survival function $S(t)$ is correspondingly 
+$$S(t) = exp(-H(t))=exp(-\lambda t^\gamma),$$
+and the cumulative distribution function $F(t)$ is 
+$$
+F(t) = 1-S(t) = 1-exp(-H(t))=1-exp(-\lambda t^\gamma).
+$$
+
+### b)
+Given that $F(t)=p$ and $F(t)=exp(-\lambda t^\gamma)$, we can solve the equation that,
+$$
+1-exp(-\lambda t^\gamma) = p\\
+exp(-\lambda t^\gamma) = 1-p \\
+-\lambda t^\gamma = ln(1-p) \\
+t^\gamma = \frac{1}{\lambda}ln(\frac{1}{1-p}) \\
+t= (\frac{1}{\lambda}ln\frac{1}{1-p})^{\frac{1}{\gamma}}
+$$
+so the quantile function is $q(p)= (\frac{1}{\lambda}ln\frac{1}{1-p})^{\frac{1}{\gamma}}.$ 
+
+
+## Q2 
+### a)
+```{r}
+# raw data
+times <- c(3,5,5,8,12,12,15,20,22,25)
+status <- c(1,0,1,1,0,1,1,0,1,0)
+df <- data.frame(times = times, status = status)
+```
+
+
+```{r}
+# build signature function
+self_KM <- function(times, status){
+  
+  df_a <- aggregate(status ~ times, data = data.frame(times, status), FUN = sum)
+  colnames(df_a) <- c("Time", "n.event")
+  
+  df_a$n.risk <- sapply(df_a$Time, function(t) sum(times >= t))
+  
+  df_a$Survival <- cumprod(1 - df_a$n.event/df_a$n.risk)
+  
+  # 95% CI
+  Var_logs <- cumsum(df_a$n.event / (df_a$n.risk * (df_a$n.risk - df_a$n.event)))
+  log_es_surv <- log(df_a$Survival)
+  log_CI_lower <- log_es_surv - 1.96* sqrt(Var_logs)
+  log_CI_upper <- log_es_surv + 1.96* sqrt(Var_logs)
+  df_a$CI.lower <- exp(log_CI_lower)
+  df_a$CI.upper <- exp(log_CI_upper)
+  
+  df_a <- df_a[df_a$n.event > 0, ]
+  return(df_a)
+}
+
+
+df_a <- self_KM(times, status)
+print(df_a)
+```
+     
+```{r,echo=FALSE,results='hide'}
+if(FALSE){
+ggplot(df_a, aes(x=Time))+
+  geom_step(aes(y=Survival), size=1) +
+  geom_step(aes(y=CI.lower), linetype = "dashed")+
+  geom_step(aes(y=CI.upper), linetype = "dashed")+
+  labs(y="Survival Probability")+
+  theme_classic()
+
+ggplot(df_a, aes(x = Time)) +
+  geom_ribbon(aes(ymin = CI.lower, ymax = CI.upper),
+              alpha = 0.25) +      
+  geom_step(aes(y = Survival),
+            linewidth = 1) +
+  #ylim(0,1) +
+  labs(x = "Time",
+       y = "Survival Probability") +
+  theme_classic()}
+```
+
+### b)
+```{r}
+fit_pack <- survfit(Surv(times, status) ~ 1, conf.type = "log")
+summary(fit_pack)
+
+df_pack <- data.frame(Time = fit_pack$time,
+                      Survival = fit_pack$surv,
+                      CI.lower = fit_pack$lower,
+                      CI.upper = fit_pack$upper)
+
+ggplot() +
+  # self-KM
+  geom_step(data = df_a,
+            aes(Time, Survival, color = "A"),
+            linewidth = 1) +
+  geom_step(data = df_a,
+            aes(Time, CI.lower, color = "A"),
+            linetype = "dashed") +
+  geom_step(data = df_a,
+            aes(Time, CI.upper, color = "A"),
+            linetype = "dashed") +
+  
+  # survfit package
+  geom_step(data = df_pack,
+            aes(Time, Survival, color = "B"),
+            linewidth = 1) +
+  geom_step(data = df_pack,
+            aes(Time, CI.lower, color = "B"),
+            linetype = "dashed") +
+  geom_step(data = df_pack,
+            aes(Time, CI.upper, color = "B"),
+            linetype = "dashed") +
+
+  scale_color_manual(
+    name = "Method",
+    values = c(A = "black", B = "red"),
+    labels = c(A = "Self KM", B = "Survfit package")
+  ) +
+  labs(y = "Survival Probability") +
+  theme_classic()
+```
+
+## Q3
+### a)
+The partial likelihood $L(\beta)$ can be expressed as:
+$$
+L(\beta) = \prod_{i=1}^k \{\frac{exp(\beta^T x_i)}{\sum_{l\in R(t_i)}exp(\beta^T x_l)}\}^{\delta_i}
+$$
+$R(t_i)$ is "the risk set just before t(i)". Intuitively, we first sort all observed times in ascending order. At a given time $t_i$, the risk set $R(t_i)$ consists of all individuals whose observed survival times are greater than ot equal to $t_i$ and have not experienced the event or been censored before $t_i$. <br>
+
+The likelihood for the i-th event is part of $L(\beta)$, which is 
+
+$$
+(\frac{exp(\beta^T x_i)}{\sum_{l\in R(t_i)}exp(\beta^T x_l)})^{\delta_i}
+$$
+and it can be explained as how likely a particular individual having the event at time $t_i$, relative to others in the risk set, given that one event occurs at time $t_i$.
+
+
+### b)
+Given that $L(\beta) = \prod_{i=1}^k \{\frac{exp(\beta^T x_i)}{\sum_{l\in R(t_i)}exp(\beta^T x_l)}\}^{\delta_i}$, we derive the score function following the steps below:
+$$
+l(\beta)=log(L(\beta))=\sum_{i=1}^k (\beta^T x_i-log({\sum_{l\in R(t_i)}exp(\beta^T x_l)}) \\
+S(\beta)=\frac{dl(\beta)}{d\beta_m}=\sum_{i=1}^k(x_{(i),m}-\frac{\sum_{l\in R(t_i)} x_{(l),m} \cdot exp(\beta^T x_l) }{\sum_{l\in R(t_i)}exp(\beta^T x_l)})
+$$
+Observing $S(\beta)$, we can find that, the second term is actually an expectation.The ratio $\frac{exp(\beta^T x_l) }{\sum_{l\in R(t_i)}exp(\beta^T x_l)})$ represents the weighted possibility that individual $l$ having event at time $t_i$, given that one event occurs in $R(t_i)$. Then the second term can be simplified as $\sum_{l\in R(t_i)} x_{(l),m} \cdot p_l$, which is exactly the form of expectation $E(X_{(i),m})$. <br>
+Setting $S(\beta)$ to zero, we obtain that, $\sum_{i=1}^k (X_{(i),m}-E(X_{(i),m}))=0$. It implies that when the sum of actual covariates of individuals equals to the sum of expected value of covariates, the score functions equal to zero.
+
+## Q4
+### a)
+The unscaled Schoenfeld residual for individual i and covariate j is that
+$$
+r_{Sji}=\delta_i (x_{ji}-\hat {a_{ji}}),\\
+\hat {a_{ji}}=\frac{\sum_{l\in R(t_i)} x_{jl} \cdot exp(\hat \beta^T x_l) }{\sum_{l\in R(t_i)}exp(\hat \beta^T x_l)}
+$$
+where $\delta_i$ is the event indicator(1 if event and 0 if censored), $x_{ji}$ is the actual covariate value for individual i and $\hat {a_{ji}}$ is the risk-weighted average of covariate j among those who still at risk at $ti$. <br>
+
+The scaled Schoenfeld residual is
+$$
+r_{Si}^* = [d*var(\hat \beta)]r_{Si}
+$$
+where $d$ is the total number of events in the dataset, $var(\hat \beta)$ is the estimated variance-covariance matrix of the coefficients, and $r_{Si}$ is the unscaled residual vector $x_{ji}-\hat {a_{ji}}$ for all covariates at event time $t_i$.
+
+### b)
+#### i)
+```{r}
+data_lung <- collett::lung
+fit1 <- coxph(Surv(time, status)~factor(disease) +age,
+             data = data_lung)
+res_uns <- residuals(fit1, type = "schoenfeld")
+#colnames(res_uns)
+head(res_uns)
+mean(res_uns)
+
+res_sca <- residuals(fit1, type = "scaledsch")
+head(res_sca)
+```
+
+```{r, warning=FALSE}
+df_event <- data_lung[data_lung$status > 0, ]
+event_time <- as.numeric(rownames(res_uns))
+#head(collett::lung)
+#length(res_uns[, 1])
+res_df <- data.frame(
+  time = event_time,
+  res  = res_uns[, 1]
+)
+
+res_df2 <- data.frame(
+  time = event_time,
+  res  = res_sca[, 1]
+)
+
+ggplot(res_df, aes(x = time, y = res))+
+         geom_point(alpha = 0.6) + 
+         geom_smooth(method = "loess", se = TRUE, color = "blue") + 
+         geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+         labs(x = "Time", y = "Unscaled Schoenfeld Residuals") +
+         theme_minimal()
+
+ggplot(res_df2, aes(x = time, y = res))+
+         geom_point(alpha = 0.6) + 
+         geom_smooth(method = "loess", se = TRUE, color = "blue") + 
+         geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+         labs(x = "Time", y = "Scaled Schoenfeld Residuals") +
+         theme_minimal()
+
+```
+```{r}
+zph_fit <-cox.zph(fit1, terms = FALSE)
+plot(zph_fit, var=1, main="Scaled Schoenfeld ")
+abline(h=coef(fit1)[1], col="red",lty=2)
+print(zph_fit)
+```
+
+The unscaled Schoenfeld residual shows a noticeable bending trend, and the scaled Schoenfeld residual exhibits a decreasing trend, indicating that the proportional hazards assumption is not satisfied.
+
+#### ii)
+```{r}
+data_lung$distype1 <- as.numeric(data_lung$disease == 1)
+data_lung$distype2 <- as.numeric(data_lung$disease == 2)
+data_lung$distype3 <- as.numeric(data_lung$disease == 3)
+data_lung$distype4 <- as.numeric(data_lung$disease == 4)
+
+fit_tv <- coxph(Surv(time, status) ~ distype2 + distype3 + distype4 + age + tt(distype2),
+                   data = data_lung,
+                   tt = function(x, t, ...) x * log(t))
+                   #tt = function(x, t, ...) x * t)
+
+summary(fit_tv)
+# vcov(fit_tv)
+```
+
+We are assuming that $log\_HR(t)=\beta_{distype2}+\beta_{time\cdot distype2} \cdot log(t)$, <br>
+$Var(log\_{HR(t)})$ is then
+$$
+Var(\beta_d)+(log(t))^2 Var(\beta_{d\_t})+2log(t)\cdot Cov(\beta_d,\beta_{d\_t})
+$$
+
+```{r}
+# extract coefficients and CI
+idx_d  <- "distype2"
+idx_tt <- "tt(distype2)"
+
+b_d <- coef(fit_tv)[idx_d]
+b_dt <- coef(fit_tv)[idx_tt]
+
+var_d <- vcov(fit_tv)[idx_d, idx_d]
+var_dt <- vcov(fit_tv)[idx_tt, idx_tt]
+cov_dt   <- vcov(fit_tv)[idx_d, idx_tt]
+
+t_seq <- seq(1, 1500, length.out = 200)
+log_t <- log(t_seq)
+
+
+log_hr <- b_d + b_dt * log_t
+se_log_hr <- sqrt(var_d + (log_t^2) * var_dt + 2 * log_t * cov_dt)
+
+
+plot_df <- data.frame(
+  time = t_seq,
+  HR = exp(log_hr),
+  lower = exp(log_hr - 1.96 * se_log_hr),
+  upper = exp(log_hr + 1.96 * se_log_hr)
+)
+ggplot(plot_df, aes(x = time, y = HR)) +
+  geom_line(color = "blue", size = 1.2) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), fill = "blue", alpha = 0.2) +
+  #geom_hline(yintercept = 1, linetype = "dashed", color = "#e41a1c", size = 0.8) +
+  labs(
+    title = "Time-Varying Hazard Ratio for fibrosis compared with COPD",
+    x = "Time",
+    y = "Hazard Ratio (95% CI)"
+  ) +
+  ylim(0,50)+
+  theme_minimal()
+```
+Findings:
+1) We can identify a significant time-varying effect by the significant p-value of tt(distype2) (0.002819), showing that the hazard ratio for fibrosis relative to COPD is not constant over time.
+2) We can also see the trend of how HR changes over time: The HR is rather high initially, then it decrease rapidly and finally it converges to a low level.
+
+
+## Q5
+### a)
+The likelihood for data tuple $(u_i,v_i)$ in terms of probability is
+$$
+L(i)=\prod_{i=1}^n \Pr(u_{i}<T_{i}\leq v_{i}\mid T_{i}>u_{i})=\prod_{i=1}^n \frac{\Pr(u_{i}<T_{i}\leq v_{i})}{\Pr(T_{i}>u_{i})}=\prod_{i=1}^n \frac{F(v_{i})-F(u_{i})}{1-F(u_{i})}
+$$ 
+Thus, log-likelihood is 
+
+$$
+l(i)=\sum_{i=1}^{n}\log\frac{F(v_{i})-F(u_{i})}{1-F(u_{i})}
+$$ 
+
+Since $S(t)=1-F(t)$, the log-likelihood in terms of the survival function is
+
+$$
+l(i)=\sum_{i=1}^{n} \log(S(u_{i})-S(v_{i}))-\log S(u_{i})
+$$ 
+Knowing that $h(t) = S(t) \cdot h(t)$, we obtain that
+
+$$
+l(i)=\log\left(\int_{u_{i}}^{v_{i}}h(t)S(t)dt \right)-\log S(u_{i})
+$$ 
+
+## Q6
+### a)
+We know that 
+$$
+M(t)=N(t)-\int_0^t\lambda(u)\,du=N(s)-\int_0^s\lambda(u)\,du+N(t)-N(s)-\int_s^t\lambda(u)\,du \\
+M(t)=M(s)+N(t)-N(s)-\int_s^t\lambda(u)\,du
+$$
+Then $E(M(t)|\mathscr{F}_s)$ can be derived as below:
+$$
+E(M(t)|\mathscr{F}_s)=E(M(s)+N(t)-N(s)-\int_s^t\lambda(u)\,du)=M(s)+E(N(t)-N(s)-\int_s^t\lambda(u)\,du)
+$$
+Since $N(t)-N(s)$ follows Poisson distribution with parameter $\int_s^t \lambda(u)\,du$, the expectation of $E(N(t)-N(s))$ is the poisson parameter, which is
+$$
+E(N(t)-N(s)-\int_s^t\lambda(u)\,du)=E(\int_s^t \lambda(u)\,du-\int_s^t \lambda(u)\,du)=0
+$$
+Thus, $E(M(t)|\mathscr{F}_s)=M(s)$ for all $s \le t$, that is, $M(t)$ is a martingale.
+
+### b)
+We know that $M(t)=M(s)+N(t)-N(s)-\int_s^t\lambda(u)\,du$, squaring this expression and setting $N(t)-N(s)-\int_s^t\lambda(u)\,du$ as $\Delta M$, we get
+$$
+M^2(t)=M^2(s)+{\Delta M}^2+2 M(s)\Delta M
+$$
+Given the conculusion in a) that $E(M(t)|\mathscr{F}_s)=M(s)$, taking the conditiondal expectation gives
+
+$$
+\begin{aligned}
+E(M(t)^2 \mid \mathcal{F}_s)
+&= E\!\left(M^2(s) + (\Delta M)^2 + 2M(s)\Delta M \mid \mathcal{F}_s\right) \\
+&= M^2(s) + E((\Delta M)^2 \mid \mathcal{F}_s)
+  + 2M(s)E(\Delta M \mid \mathcal{F}_s)
+\end{aligned}
+$$
+
+Then $E(M^{2}(t)-\int_{0}^{t}\lambda(u)d u|\mathcal{F}_{s})$ can be derived as following,
+$$
+\begin{aligned}
+E(M(t)^2 -\int_{0}^{t}\lambda(u)d u\mid \mathcal{F}_s)
+&= M^2(s)-\int_0^s \lambda u \,du +E\!\left( (\Delta M)^2 + 2M(s)\Delta M-\int_s^t \lambda (u) \,du \mid \mathcal{F}_s\right) \\
+&= M^2(s)-\int_0^s \lambda u \,du +E(\Delta M)^2 +2M(s)E(\Delta M)-E(\int_s^t \lambda (u) \,du) \\
+\end{aligned}
+$$
+Similar to question a), the expectation of $E(N(t)-N(s))$ is the poisson paremeter,
+$$
+E(\Delta M)=E(N(t)-N(s))-\int_{s}^{t}\lambda(u)d u=\int_{s}^{t}\lambda(u)d u-\int_{s}^{t}\lambda(u)d u=0
+$$ 
+Based on the variance equation that,
+$E(\Delta M)^2=E(N(t)-N(s)-\int_s^t\lambda(u)\,du)^2=Var(N(t)-N(s))=\int_s^t\lambda(u)\,du$, we obtain that $E(\Delta M)-E(\int_s^t\lambda(u)\,du)=0$, i.e.
+$$
+E(M(t)^2 -\int_{0}^{t}\lambda(u)d u\mid \mathcal{F}_s)=M^2(s)-\int_0^s \lambda u \,du
+$$
+Consequently, we reach the conclusion that $M(t)^2 -\int_{0}^{t}\lambda(u)d u$ is a martingale.
+
+## Q7
+### a)
+First, the expression can be written as an integral:
+$$
+|A(t)-A^*(t)|=|\int_0^t\alpha(s)\,ds-\int_0^t J(s)\alpha(s)\,ds|=|\int_0^t\alpha(s)\left(1-J(s)\right)\,ds|
+$$
+since $J(s)=I(Y(s)>0)$ is an indicator function representing whether the risk set $Y$ is empty at time $s$, $J(s)\in {0,1}$, $1-J(s) \ge0$. With the hazard function $\alpha(s)\geq0$ too, the absolute value sign can be moved away, $|A(t)-A^*(t)|=\int_0^t\alpha(s)\left(1-J(s)\right)\,ds$.
+
+Next, we prove that $J(s)\xrightarrow{P}1$. $Y(s)$ is the number of individuals at risk at time s, and it follows a binomial distribution, $Y(s)\sim Bin(n,p(s))$, where $p(s)=P(T\geq s)$ meaning the probability that an individual is still at risk at time s. <br>
+Since $J(s)$ can only take the value 0 or 1, if $J(s)=1$, $P(|J(s)-1|\geq\epsilon)=P(0\geq\epsilon)=0$; if $J(s)=0$, $P(|J(s)-1|\geq\epsilon)=P(1\geq\epsilon)=1$. According to Law of Total Probability, 
+$$
+\begin{aligned}
+P(|J(s)-1|\geq\epsilon)
+&= P(|J(s)-1|\geq\epsilon|J(s)=1)\cdot P(J(s)=1)+P(|J(s)-1|\geq\epsilon|J(s)=0)\cdot P(J(s)=0) \\
+&= 0+1 \times P(J(s)=0)  \\
+&=P(J(s)=0)
+\end{aligned}
+$$
+
+With the knowledge of binomial distribution,$P(J(s)=0)=P(Y(s)=0)=(1-p(s))^n$.
+That is $P(|J(s)-1|\geq\epsilon)=(1-p(s))^n$, when n tend to inf, 
+$$
+\lim_{n\to\infty}P(|X_{n}-X|>\varepsilon)=0\quad\forall\epsilon>0
+$$
+i.e. $J(s)\xrightarrow{P}1$.<br>
+
+As $J(s)$ is a non-increasing function, $J(s)\geq J(t)$ when $s \leq t$, that is, $1-J(s) \leq 1-J(t)$ when $s \leq t$.
+$$
+\begin{aligned}
+|A(t)-A^*(t)|
+&= \int_0^t\alpha(s)\left(1-J(s)\right)\,ds \\
+&\leq \int_0^t\alpha(s)\left(1-J(t)\right)\,ds \\ 
+&=(1-J(t))\int_0^t\alpha(s)\,ds \\
+&=(1-J(t))\cdot A(t)
+\end{aligned}
+$$
+The corresponding probability is that,
+$$
+\begin{aligned}
+P(|A(t)-A^*(t)|>\epsilon)
+&\leq P((1-J(t))\cdot A(t)>\epsilon)\\
+&= P(J(t)=0)\cdot P(A(t)>\epsilon)+P(J(t)=1)\cdot P(0>\epsilon)\\
+&\leq P(J(t)=0)=(1-p(t))^n
+\end{aligned}
+$$
+
+With $0<1-p(t)<1$, when n tend to inf.
+$$
+\lim_{n\to\infty}P(|A(t)-A^*(t)|>\epsilon)=0\quad\forall\epsilon>0
+$$ 
+Finally, we got that
+$$
+|A(t)-A^*(t)|\xrightarrow{P}0.
+$$ 
+Declaration of AI Usage: 
+I used gemini to give me a structure of functions in R with the prompt "Show me the structure of a user-defined function in R" when building the "self-KM" function; I aksed AI to debug for me in Q4 b ii) modeling for a time-varying model, it turns out factor(disease) cannot multiply log(t) directly, so I change disease into four dummy variables. <br>
+No content, analysis, or interpretation was generated by the AI; the writing is entirely my own.
+<!-- Copyright <2025> -->
+<!-- MIT License -->
+
+<!-- Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the “Software”), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions: -->
+
+<!-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software. -->
+
+<!-- THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. -->

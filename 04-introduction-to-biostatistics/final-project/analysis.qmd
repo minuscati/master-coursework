@@ -1,0 +1,273 @@
+---
+title: "Assignment3"
+format: html
+editor: visual
+---
+
+# import data
+```{r}
+data_o <- read.csv("birthweight_original.csv")
+data_a <- read.csv("birthweight_analysisdata.csv")
+```
+
+```{r}
+# find out if there is null value and where
+colSums(is.na(data_o)) > 0
+colSums(is.na(data_a)) > 0
+colSums(is.na(data_a))
+which(rowSums(is.na(data_a)) > 0)
+# colSums(data_o < 0, na.rm = TRUE)
+```
+
+```{r}
+# fulfilling missing data
+data_a[4,4] <- 0 
+data_a[293,4] <- 0 
+data_a <- data_a[-321, ]
+colSums(is.na(data_a))
+```
+
+```{r}
+library(tableone)
+vars_cont <- c("age","bwt", "id","bp_sys")
+vars_cat  <- c("birth", "smoke", "preterm", "neocare")
+
+table1 <- CreateTableOne(
+  vars       = c(vars_cont, vars_cat),
+  data       = data_o,
+  factorVars = vars_cat
+)
+
+# print Table 1
+print(table1, showAllLevels = TRUE, quote = FALSE, noSpaces = TRUE)
+summary(table1)
+```
+
+```{r}
+vars_cont1 <- c("age","id")
+vars_cat1  <- c("birth", "smoke","low","high_bp", "preterm", "neocare")
+
+table1_a <- CreateTableOne(
+  vars       = c(vars_cont1, vars_cat1),
+  data       = data_a,
+  factorVars = vars_cat1
+)
+
+# print Table 1
+print(table1_a, showAllLevels = TRUE, quote = FALSE, noSpaces = TRUE)
+summary(table1_a)
+```
+
+
+```{r}
+## see original data
+# install.packages("haven")
+library(haven)
+data_1 <- read_dta("clslowbwt.dta")
+```
+
+```{r}
+# draw DAG pic
+# install.packages("ggdag")
+library(ggdag)
+# install.packages("dagitty")
+library(dagitty)
+```
+
+```{r}
+dag <- dagitty("
+dag {
+  age -> {smoke birth high_bp low preterm}
+  smoke -> {low preterm}
+  birth -> {low preterm}
+  high_bp -> {low preterm}
+  preterm -> low
+}")
+# dag {
+  # age -> birth
+  # birth -> low
+  # birth -> preterm
+  # age -> smoke
+  # smoke -> low
+  # smoke -> preterm
+  # age -> low
+  # age -> high_bp
+  # age -> preterm
+  # high_bp -> low
+  # preterm -> low
+  # low -> neocare
+  # high_bp -> preterm
+  # preterm -> neocare
+#   }
+# ")
+
+plot(dag)
+```
+
+```{r}
+adjustmentSets(dag,
+               exposure = "smoke",
+               outcome  = "low")
+```
+
+```{r}
+tidy_dag <- tidy_dagitty(dag)
+
+ggdag(tidy_dag,
+      exposure = "smoke",
+      outcome  = "low") +
+  theme_dag()
+```
+
+```{r}
+# 1. 加载必要的包 / Load libraries
+library(dagitty)
+library(ggdag)
+library(ggplot2)
+
+# 2. 定义 DAG 结构并手动设置坐标 (pos)，以确保清晰度
+# Define DAG and manual coordinates for a clean flow (from left to right)
+coords <- list(
+  x = c(age = 0, smoke = 1, high_bp = 1, birth = 2, preterm = 2, low = 3, neocare = 4),
+  y = c(age = 1, smoke = 2, high_bp = 0, birth = 1.2, preterm = 0.5, low = 1, neocare = 1)
+)
+
+
+
+#   age -> birth
+#   birth -> low
+#   birth -> preterm
+#   age -> smoke
+#   smoke -> low
+#   smoke -> preterm
+#   age -> low
+#   age -> high_bp
+#   age -> preterm
+#   high_bp -> low
+#   preterm -> low
+#   low -> neocare
+#   high_bp -> preterm
+#   preterm -> neocare
+dag_model <- dagitty("
+dag {
+  age -> {smoke birth high_bp low}
+  smoke -> {low preterm}
+  birth -> low
+  high_bp -> {low preterm}
+  preterm -> low
+}
+
+")
+
+# 将坐标应用到 DAG / Assign coordinates
+coordinates(dag_model) <- coords
+
+# 3. 整理数据并绘图 / Tidy and Plot
+tidy_dag <- tidy_dagitty(dag_model)
+
+ggplot(tidy_dag, aes(x = x, y = y, xend = xend, yend = yend)) +
+  # 绘制箭头和线条 / Edges with curvature or straight lines
+  geom_dag_edges(edge_color = "grey50", arrow_directed = grid::arrow(length = unit(3, "mm"), type = "closed")) +
+  # 绘制节点 / Nodes
+  geom_dag_node(color = "steelblue", size = 14) +
+  # 添加变量文本 / Node labels
+  geom_dag_text(color = "white", size = 4, fontface = "bold") +
+  # 优化视觉效果 / Aesthetic improvements
+  theme_dag() +
+  labs(title = "Causal Relationship DAG: Pregnancy and Birth Outcomes",
+       subtitle = "From Pre-pregnancy Status to Neonatal Care") +
+  theme(plot.title = element_text(hjust = 0.5, size = 16),
+        plot.subtitle = element_text(hjust = 0.5, size = 12))
+```
+```{r}
+# 标记变量角色 / Define roles
+# dag_model <- dagitty("
+# dag {
+#   age -> birth
+#   birth -> low
+#   birth -> preterm
+#   age -> smoke
+#   smoke -> low
+#   smoke -> preterm
+#   age -> low
+#   age -> high_bp
+#   age -> preterm
+#   high_bp -> low
+#   preterm -> low
+#   low -> neocare
+#   high_bp -> preterm
+#   preterm -> neocare
+# }
+# ")
+dag_model <- dagitty("dag {
+  age -> {smoke birth high_bp low}
+  smoke -> {low preterm}
+  birth -> low
+  high_bp -> {low preterm}
+  preterm -> low
+}
+")
+
+# exposure(dag_model) <- "smoke"
+# outcome(dag_model) <- "low"
+# 
+# # 绘图时会自动变色 / Plotting with auto-coloring for roles
+# ggdag_status(dag_model) + theme_dag()
+```
+
+
+```{r}
+# full model construction
+total <- glm(low ~ smoke + age, family = binomial, data = data_a)
+total_c <- glm(low ~ smoke + age + smoke*age, family = binomial, data = data_a)
+summary(total)
+summary(total_c)
+
+# direct <- glm(low ~ smoke + age + preterm, family = binomial, data = data_a)
+# summary(direct)
+```
+
+```{r}
+# use package for standardization
+library(stdReg)
+std_fit <- stdGlm(fit = total_c, data = data_a, X="smoke")
+summary(std_fit)
+summary(object = std_fit, transform = "logit", contrast = "difference", reference = 0)
+```
+```{r}
+# standardization manually
+## marginal risks
+data0 <- data_a
+data0$"smoke" <- 0
+pred0 <- predict(object = total_c, newdata = data0, type = "response")
+p0 <- mean(pred0)
+p0
+data1 <- data_a
+data1$"smoke" <- 1
+pred1 <- predict(object = total_c, newdata = data1, type = "response")
+p1 <- mean(pred1)
+p1
+
+# marginal causal effects
+## log or
+logit_p1 <- qlogis(p1)
+logit_p0 <- qlogis(p0)
+log_or_m <- logit_p1-logit_p0
+## risk difference 
+rd <- p1-p0
+## risk ratio
+rr <- p1/p0
+
+# display results
+cat("The marginal casual log odds ratio is", log_or_m,"\n")
+cat("The casual risk difference is", rd,"\n")
+cat("The causal risk ratio is", rr)
+```
+
+
+
+
+
+
+
+

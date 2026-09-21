@@ -1,0 +1,239 @@
+---
+title: "Computer Assignment 3"
+author: "Min Zhu & Ziyi Wang"
+date: "`r Sys.Date()`"
+output:
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+load("proj_data.Rdata")
+model1 <- glm(Resultat ~ Alder + Kon + Utbildare, 
+              data = data_individ,
+              family = "binomial")
+summary(model1)
+```
+
+# Task1
+
+```{r, code = readLines("funktioner.R")}
+source("funktioner.R")
+```
+
+```{r}
+# coefficient of glm method
+theta_mo <- coef(model1)
+theta_mo <- as.numeric(theta_mo)
+
+y <- matrix(data_individ$Resultat, ncol = 1)
+X <- model.matrix(Resultat ~ Alder + Kon + Utbildare,
+                  data = data_individ)
+
+## Using functions from Part 1
+theta0 <- c(0,0,0,0)
+max_iter <- 100
+for (i in 1:max_iter){
+  theta0 <- NR(theta0, niter=1, y, X)
+  theta_hat <- theta0
+  if (all(round(theta_hat, 2) == round(theta_mo, 2))) {
+    break
+  }
+} 
+
+## Computing AIC
+p <- 4
+log_Likelihood <- l(theta_hat,y,X)
+AIC_f <- -2* log_Likelihood + 2*p
+cat("Value of AIC using previous funcitons:",AIC_f,"\n")
+cat("AIC value of model1:", AIC(model1), "\n")
+```
+
+### The AIC value computed using the previous functions agrees with the value obtained from R.
+
+```{r}
+## leave-one-out Cross validation
+n <- nrow(X)
+log_li_cv <- numeric(n)
+tolerance <- 1e-4 
+max_iter <- 100    
+
+for (i in 1:n){
+    # split sample: training
+    X_l <- X[-i,, drop = FALSE] 
+    y_l <- y[-i]
+
+    theta_hat <- c(0, 0, 0, 0) 
+    for (j in 1:max_iter){
+        theta_prev <- theta_hat 
+        theta_hat <- NR(theta_prev, niter=1, y_l, X_l) 
+
+        if (all(abs(theta_hat - theta_prev) < tolerance)) {
+            break
+        }
+    }
+    log_li_cv[i] <- l(theta_hat, y[i], X[i,, drop = FALSE])
+}
+
+log_final <- mean(log_li_cv)
+cat("cross-validated average log-likelihood:",log_final,"\n")
+
+AIC_cv <- -2*sum(log_li_cv)
+cat("AIC computing from cross-validated method:",AIC_cv,"\n")
+```
+
+### The result of cross-validation is very close to the previous value of AIC.
+
+# Task 2
+
+```{r}
+## Define post function
+post <- function(theta, y, X) {
+  eta <- X %*% theta
+  p <- 1 / (1 + exp(-eta))
+  likelihood <- prod(p^y * (1 - p)^(1 - y))
+  
+  # vague prior: theta ~ N(0, 100I)
+  prior <- prod(dnorm(theta, mean = 0, sd = 10))
+  
+  # Posterior
+  return(likelihood * prior)
+}
+
+```
+
+```{r}
+Xtest <- cbind(1, 18:25, rep(c(0,1),4), rep(c(1,1,0,0),2))
+ytest <- c(rep(TRUE, 4), rep(FALSE, 4))
+post(c(260, -10, 10, -20), ytest, Xtest) / post(c(270, -15, 15, -25), ytest, Xtest)
+```
+
+### The computed value is aligned with the answer given.
+
+# Task 3
+
+```{r}
+theta_mle <- coef(model1) # initial values
+sigma_step <- summary(model1)$coefficients[, "Std. Error"] # step sizes
+
+# Define log-posterior function
+log_posterior <- function(theta, X, y) {
+  eta <- X %*% theta
+  p <- 1 / (1 + exp(-eta))
+  log_lik <- sum(y * log(p) + (1 - y) * log(1 - p))
+  
+  # Prior: theta ~ N(0, 100I) - vague prior
+  log_prior <- sum(dnorm(theta, mean = 0, sd = 10, log = TRUE))
+  
+  # Log-posterior = log-likelihood + log-prior
+  return(log_lik + log_prior)
+}
+```
+
+```{r}
+# Data for MCMC
+X <- model.matrix(Resultat ~ Alder + Kon + Utbildare, data = data_individ)
+y <- data_individ$Resultat
+
+# Metropolis-Hastings Algorithm
+N <- 10000  # Number of iterations
+n_params <- length(theta_mle)
+theta_samples <- matrix(nrow = N, ncol = n_params)
+colnames(theta_samples) <- names(theta_mle)
+
+# Initialize with MLE estimates
+theta_samples[1, ] <- theta_mle
+
+# Acceptance counter
+count <- 0
+
+# Main MCMC loop
+set.seed(021120)
+for (i in 2:N) {
+  # Generate candidate from proposal distribution: N(theta_{i-1}, sigma_step^2)
+  theta_star <- theta_samples[i-1, ] + rnorm(n_params) * sigma_step
+  
+  # Calculate acceptance probability (log scale)
+  log_alpha <- log_posterior(theta_star, X, y) - log_posterior(theta_samples[i-1, ], X, y)
+  
+  # Accept or reject candidate
+  if (log(runif(1)) < log_alpha) {
+    theta_samples[i, ] <- theta_star
+    count <- count + 1
+  } else {
+    theta_samples[i, ] <- theta_samples[i-1, ]
+  }
+}
+
+# Calculate acceptance rate
+accept_rate <- count / (N - 1)
+cat("Acceptance rate:", accept_rate, "\n")
+```
+
+```{r}
+# Plot parameter traces
+par(mfrow = c(2, 2))
+for (j in 1:n_params) {
+  plot(theta_samples[, j], type = "l", 
+       main = paste("Parameter Trace:", colnames(theta_samples)[j]),
+       xlab = "", ylab = "")
+}
+```
+
+```{r}
+# Plot posterior distributions
+par(mfrow = c(2, 2))
+for (j in 1:n_params) {
+  hist(theta_samples[, j], breaks = 30, 
+       main = paste("Posterior Distribution:", colnames(theta_samples)[j]),
+       xlab = "Parameter Value", probability = TRUE)
+}
+```
+
+```{r}
+# Calculate posterior statistics
+posterior_means <- apply(theta_samples, 2, mean)
+posterior_quantiles <- apply(theta_samples, 2, quantile, probs = c(0.025, 0.975))
+
+# Create comparison table
+results_comparison <- data.frame(
+  Parameter = names(theta_mle),
+  MLE = theta_mle,
+  Bayesian_Mean = posterior_means,
+  Bayesian_CI_Lower = posterior_quantiles[1, ],
+  Bayesian_CI_Upper = posterior_quantiles[2, ],
+  MLE_SE = sigma_step
+)
+
+print(results_comparison)
+```
+
+```{r}
+# Predict probability for new observation
+# My age 22, female, private education
+x_star <- c(1, 22, 0, 0)  # Intercept, Age, female, Private education
+
+# Calculate predicted probability
+pred_probs <- apply(theta_samples, 1, function(theta) {
+  eta <- sum(x_star * theta)
+  return(1 / (1 + exp(-eta)))
+})
+
+# Calculate posterior predictive probability
+posterior_pred_prob <- mean(pred_probs)
+
+cat("Posterior predictive probability of passing test:", round(posterior_pred_prob, 4), "\n")
+```
+
+```{r}
+# Plot posterior distribution of predictive probability
+hist(pred_probs, breaks = 30, main = "Posterior Predictive Probability Distribution",
+     xlab = "P(Y* = 1 | y)", probability = TRUE)
+abline(v = posterior_pred_prob, col = "red", lwd = 2, lty = 2)
+legend("topright", legend = paste("Mean =", round(posterior_pred_prob, 4)), 
+       col = "red", lty = 2)
+```

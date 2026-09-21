@@ -1,0 +1,193 @@
+---
+title: "SU_CA3"
+author: "Ziyi Wang"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r}
+# read the data
+data3<-read.csv("data_ca3.csv")
+head(data3)
+```
+# Fitting a loglinear model
+```{r}
+# Saturated model
+msat <- glm(n~x*y*z*v, family = poisson(link = log), data = data3)
+summary(msat)
+```
+
+```{r}
+# All three-way interactions
+m3 <- glm(n~(x+y+z+v)^3, family = poisson(link=log), data = data3)
+summary(m3)
+```
+# LR-test between two nested models
+```{r}
+anova(m3,msat,test="LRT")
+
+```
+# Stepwise model selection, using AIC
+```{r}
+m2 <- glm(n~(x+y+z+v)^2, family = poisson(link = log), data = data3)
+summary(m2)
+```
+
+```{r}
+anova(m2,msat,test="LRT")
+```
+
+```{r}
+mstep_AIC1<-step(msat, direction="both", trace=TRUE, scope = list(upper = msat, lower = m2))
+summary(mstep_AIC1)
+```
+
+```{r}
+m1 <- glm(n~x+y+z+v, family = poisson(link = log), data = data3)
+summary(m1)
+```
+
+```{r}
+anova(m1,msat,test="LRT")
+```
+
+```{r}
+mstep_AIC2<-step(m2, direction="both", trace=TRUE, scope = list(upper = m2, lower = m1))
+summary(mstep_AIC2)
+```
+
+```{r}
+mstep_AIC3<-step(m1, direction="forward", 
+                        trace=TRUE, scope = list(upper = msat, lower = m1))
+summary(mstep_AIC3)
+```
+
+```{r}
+df<-data.frame('Model'=c("XYZV","XYZ,XYV,XZV,YZV",
+                         "XYV,XZV,YZV","XYV,XZV","XYV",
+                         "XY,XZ,XV,YZ,YV,ZV","XY,XZ,XV,YV,ZV",
+                         "XY,XV,YV,ZV","XY,XV,ZV","XY,ZV","ZV",
+                         "X,Y,Z,V"),
+               'Deviance'=c(0,0.35935,0.41133,0.63838,1.16271,
+                            1.7225,1.8221,4.7486,7.7197,17.845,
+                            35.45,377.79),
+               "df"=c(0,1,2,3,4,5,6,7,8,9,10,11),
+               'AIC'=c(123.97,122.33,120.39,118.61,117.14,115.70,
+                       113.80,114.72,115.69,123.82,139.43,479.76))
+p_value<-pchisq(df$Deviance,df$df,lower.tail = FALSE)
+df<-cbind(df,p_value)
+df
+```
+
+```{r}
+# select Model XY,XZ,XV,YV,ZV
+summary(mstep_AIC3)
+```
+
+
+```{r}
+coe <- coef(mstep_AIC3)
+co_CI <- confint.default(mstep_AIC3)
+a<-data.frame(coe,co_CI)
+a
+```
+
+```{r}
+or <- exp(mstep_AIC3$coefficients)
+or_ci <- exp(confint.default(mstep_AIC3))
+b <- data.frame(or,or_ci)
+b
+```
+
+# Exercise 3:1.4
+```{r}
+data3$x <- as.factor(data3$x)
+data3$y <- as.factor(data3$y)
+data3$z <- as.factor(data3$z)
+data3$v <- as.factor(data3$v)
+sapply(data3, class)
+```
+```{r}
+library(dplyr)
+
+data_m <- data3 |>
+  group_by(x, y, z) |>
+  summarise(
+    success = sum(n[v==1]),
+    failure = sum(n[v==0]),
+    .groups = "drop"
+  )
+data_m
+```
+
+```{r}
+# logistic regression model 1
+ml1 <- glm(cbind(success, failure)~ x+y+z, family = binomial(link=logit), data=data_m)
+summary(ml1)
+confint(ml1)
+```
+
+```{r}
+# logistic regression model 2
+ml2 <- glm(cbind(success, failure)~ (x+y+z)^2, family = binomial(link = logit), data = data_m)
+summary(ml2)
+```
+
+```{r}
+# logistic regresion model 3
+ml3 <- glm(cbind(success, failure) ~ (x+y+z)^3, family = binomial(link=logit), data = data_m)
+summary(ml3)
+```
+
+```{r}
+# LR test
+anova(ml1, ml2, test = "Chisq")
+anova(ml2, ml3, test= "Chisq")
+```
+
+```{r}
+# AIC, BIC
+AIC(ml1, ml2, ml3);
+BIC(ml1, ml2, ml3)
+```
+```{r}
+# stepwise to double check
+step_model1 <- step(ml3, direction = "both", trace = TRUE)
+summary(step_model1)
+```
+```{r}
+df2<-data.frame('Model'=c("XYZ","XY,XZ,YZ",
+                         "XY,XZ","XZ",
+                         "X,Y,Z"),
+                'Deviance'=c(0,0.35935,0.58575,0.94802,1.4875),
+               "df2"=c(0,1,2,3,4))
+p_value2<-pchisq(df2$Deviance,df2$df2,lower.tail = FALSE)
+df2<-cbind(df2,p_value2)
+df2
+```
+
+
+```{r}
+step_model2 <- step(ml1, direction = "forward", trace = TRUE)
+summary(step_model2)
+```
+# Exercise 3:1.5
+```{r}
+mlog1 <- glm(n ~ x*y*z + v* (x + y+ z), family = poisson(link = log), data = data3)
+# mlog1 <- glm(n ~ v + x*v + y*v + z*v, family = poisson(link = log), data = data3)
+summary(mlog1)
+```
+```{r}
+c1 <- coef(ml1) 
+c1# 逻辑回归
+coef(mlog1)[c("v1","x1:v1","y1:v1","z1:v1")]   # log-linear 的对应交互项
+```
+
+```{r}
+OR <- exp(c1)
+OR
+```
+
+
+
+

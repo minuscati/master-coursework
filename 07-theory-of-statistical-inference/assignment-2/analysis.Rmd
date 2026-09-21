@@ -1,0 +1,241 @@
+---
+title: "Computer assignment 2"
+author: "Ziyi Wang & Min Zhu"
+date: "`r Sys.Date()`"
+output:
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+set.seed(031026)
+load("proj_data.Rdata")
+model1 <- glm(Resultat ~ Alder + Kon + Utbildare, 
+              data = data_individ,
+              family = "binomial")
+summary(model1)
+```
+
+```{r, code = readLines("funktioner.R")}
+source("funktioner.R")
+```
+
+```{r}
+y <- matrix(data_individ$Resultat, ncol = 1)
+X <- model.matrix(Resultat ~ Alder + Kon + Utbildare, 
+                  data = data_individ)
+```
+
+## Task 1
+
+```{r}
+# Coefficient of glm method
+theta_mo <- coef(model1)
+theta_mo <- as.numeric(theta_mo)
+
+# Use functions I and NR from Part I
+theta0 <- c(0,0,0,0)
+max_iter <- 100
+for (i in 1:max_iter){
+  theta0 <- NR(theta0, niter=1, y, X)
+  theta_hat <- theta0
+  if (all(round(theta_hat, 2) == round(theta_mo, 2))) {
+    cat("niter =", i,"reaches two-digits accuracy")
+    break
+  }
+}
+```
+
+```{r}
+# Calculate standard error and Wald statistic
+fisher_info <- I(theta_hat, y, X)
+fisher_inv <- solve(fisher_info)
+std_errors <- sqrt(diag(fisher_inv))
+wald_stats <- theta_hat/std_errors
+print(wald_stats)
+```
+
+```{r}
+# Compare the z value column of the output
+r_z_values <- summary(model1)$coefficients[, "z value"]
+#print(r_z_values)
+
+Difference <- round(abs(wald_stats-r_z_values), 6)
+print(Difference)
+```
+
+### The differences between wald_stats and r_z_values being less than 0.01 confirms that the z-values in R's summary output are indeed Wald statistics.
+
+## Task 2
+
+```{r}
+# Under H0
+eta <- NR(theta0 = c(0,0,0),niter=10, y=y, X=X[,-3])
+eta
+L_eta <- L(eta,y,X=X[,-3])
+
+# Without H0 restrction 
+L_raw <- L(theta_hat,y,X)
+
+# Calculate generalized likelihood ratio
+ratio <- L_raw/L_eta
+W <- 2*log(ratio)
+cat("generalized likelihood ratio statistics:", W, "\n")
+
+# p-value
+p_value <- pchisq(W, df = 1, lower.tail = FALSE)
+cat("P-values:", p_value, "\n")
+```
+### Since the Wald statistic follows an asymptotic standard normal distribution, its square follows a chi-square distribution with one degree of freedom. The generalized likelihood ratio statistic also asymptotically follows a chi-square distribution, and in this problem its parameter (q) is one. Therefore, both statistics are of the same order of magnitude.
+
+## Task 3
+
+```{r}
+# Fit the model under H0:θ=(θ_intercept,θ_Kon)=(0,0)
+X_H0 <- X[, c(2, 4)]
+
+# Estimate η under H0
+eta_H0 <- NR(theta = c(0, 0), niter = 10, y = y, X = X_H0)
+
+# Construct full parameter vector
+theta0 <- c(0, 0)  # (intercept, Kon) = (0, 0)
+beta_H0 <- c(theta0[1], eta_H0[1], theta0[2], eta_H0[2])
+
+# Compute the score vector
+score_H0 <- S(beta_H0, y, X)
+
+# Compute Fisher information matrix
+info_H0 <- I(beta_H0, y, X)
+
+# Compute the generalized score statistic
+# T_S = S(θ0, η_ML)^T * I(θ0, η_ML)^{-1} * S(θ0, η_ML)
+T_S <- t(score_H0) %*% solve(info_H0) %*% score_H0
+T_S <- as.numeric(T_S)
+cat("Generalized Score Statistic T_S:", T_S, "\n")
+```
+```{r}
+# Compute p-value (asymptotically χ²(2))
+p_value <- 1 - pchisq(T_S, df = 2)
+cat("P-value for H0:", p_value, "\n")
+```
+## Task 4
+
+```{r}
+# Compute wald interval
+# Z-crit
+z_crit <- qnorm(0.975)
+
+# Wald interval
+Wald_L <- theta_hat[3] - z_crit * std_errors[3] # Lower Confidence Limit
+Wald_U <- theta_hat[3] + z_crit * std_errors[3] # Upper Confidence Limit
+cat("Wald interval of theta_kon is:", Wald_L, "to", Wald_U)
+```
+```{r}
+# # Compute profile likelihood at a fixed theta_Kon=t:
+# function 
+Profile_likelihood <- function(t){
+  theta.Kon <- t
+  profile <- glm.fit(x= X[, -3], y = y,
+                     offset = theta.Kon * X[,3],
+                     family = binomial())
+  pro_coeff<- profile$coeff
+  # plug back
+  linear_pred <- profile$linear.predictors
+  probs <- binomial()$linkinv(linear_pred)
+  log_lik <- sum(dbinom(y, size = 1, prob = probs, log = TRUE))
+  pro_lik <- exp(log_lik)
+  return (pro_lik)
+}
+
+# test
+LP_thetakon <- Profile_likelihood(0.5)
+LP_thetakon
+```
+
+```{r}
+# Compute Estimated likelihood
+eta_global <- coef(model1)[-3]
+Estimated_likelihood <- function(t){
+  theta.Kon <- t
+  linear_pred <- X[,-3] %*% eta_global + X[,3] * theta.Kon
+  probs <- binomial()$linkinv(linear_pred)
+  log_lik <- sum(dbinom(y, size = 1, prob = probs, log = TRUE))
+  pro_lik <- exp(log_lik)
+  return (pro_lik)
+}
+
+# test
+Le_thetakon <- Estimated_likelihood(0.5)
+Le_thetakon
+```
+```{r}
+# Compute Profile and Estimated value
+theta_range <- seq(-0.5,0.5,by=0.001)
+LP_thetakon <- sapply(theta_range, Profile_likelihood)
+Le_thetakon <- sapply(theta_range, Estimated_likelihood)
+```
+
+```{r}
+# Find 95% interval
+LP_max <- max(LP_thetakon)
+Pro_relative <- LP_thetakon / LP_max
+Re_p <- qchisq(0.95,df=1)
+threshold <- exp(-Re_p /2)
+LP_CI95 <- threshold * LP_max
+LP_CI95
+```
+
+```{r}
+## Draw
+# y_range
+y_lim_all <- range(c(LP_thetakon, Le_thetakon))
+
+# Profile likelihood
+plot(theta_range, LP_thetakon,
+     type = "l", 
+     lwd = 3,                       
+     col = "blue", 
+     xlab = expression(theta[Kon]),      
+     ylab = "Likelihood Value",  
+     main = "Profile vs Estimated Likelihood Function",
+     ylim = c(min(y_lim_all), max(y_lim_all)),
+     las = 1                        
+)
+
+# Estimated likelihood
+lines(theta_range, Le_thetakon, 
+      lwd = 3, 
+      col = "red", 
+      lty = 2)
+
+# 95% confidence interval
+abline(h = LP_CI95, 
+       col = "darkgreen", 
+       lty = 3,           
+       lwd = 2)
+
+# Wald interval
+abline(v = c(Wald_L, Wald_U), 
+       col = "orange", 
+       lty = 3,  
+       lwd = 2)
+
+# Background & Label
+grid(col = "gray", lty = 1, lwd = 0.5)
+legend("topright",                 
+       legend = c("Profile", 
+                  "Estimated", 
+                  "95% thereshold",
+                  "Wald interval"),
+       col = c("blue", "red", "darkgreen","orange"),
+       lwd = c(3, 3, 2, 2),
+       lty = c(1, 2, 3, 3),
+       bty = "n"                    
+)
+
+```
+

@@ -1,0 +1,353 @@
+---
+title: "Biostatistic Assignment 1"
+author: "Min Zhu"
+date: "`r Sys.Date()`"
+output:
+  word_document: default
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(ggplot2)
+library(splines)
+```
+
+```{r}
+# loading data
+set.seed(031026) 
+cases <- read.table("cases-1.tsv", sep = "\t", header = TRUE )
+head(cases)
+```
+
+# Task1
+
+```{r}
+cases_year_sum <- aggregate(n ~ agegroup + sex, data = cases, FUN = sum)
+age_start <- as.numeric(sub("-.*", "", as.character(cases_year_sum$agegroup)))
+ord <- order(age_start, cases_year_sum$agegroup)
+cases_year_sum <- cases_year_sum[ord, ]
+cases_year_sum$agegroup <- factor(as.character(cases_year_sum$agegroup), levels = unique(as.character(cases_year_sum$agegroup)))
+head(cases_year_sum,40)
+```
+
+```{r}
+p1 <- ggplot(cases_year_sum, aes(x = agegroup, y = n, fill = sex)) +
+  geom_col(position = position_dodge(width = 0.6), width = 0.6) +
+  scale_fill_manual(
+  values = c("Male" = "#00BFC4", "Female" = "#F8766D")) +
+  labs(x = "Age group", y = "Number of cases", fill = "Sex",
+       title = "Number of cases by age group and sex") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(p1)
+```
+
+### Observations of graph1: 1.case总数随年龄增加呈现先增多后减少趋势。 2.男女case数整体相近，在老年时女性显著多于男性
+
+# Task2
+
+```{r}
+cases_age_sum <- aggregate(n ~ year + sex, data = cases, FUN = sum)
+head(cases_age_sum,40)
+```
+
+```{r}
+p2 <- ggplot(cases_age_sum, aes(x = year, y = n, color = sex, group = sex)) +
+  geom_line(size = 1.2) +   
+  geom_point(size = 2) +  
+  scale_color_manual(values = c("Male" = "#00BFC4", "Female" = "#F8766D")) +
+  labs(
+    x = "Year",
+    y = "Number of cases",
+    color = "Sex",
+    title = "Number of cases over years by sex"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(p2)
+```
+
+### Observation:case数随年份增长整体呈上升趋势；总体上历年间女性病例数多，男女病例数差距逐渐缩小。
+
+# Task3
+
+```{r}
+# loading data
+population <- read.table("population-1.tsv", sep = "\t", header = TRUE )
+head(population)
+population$agegroup <- factor(population$agegroup, levels = unique(population$agegroup))
+```
+
+```{r}
+p3 <- ggplot(population, aes(x = year, y = agegroup, fill = n_pop)) +
+  geom_tile(color = "white") +                   
+  scale_fill_gradient(low = "white", high = "red") +
+  facet_wrap(~sex) +                             
+  labs(
+    x = "Year",
+    y = "Age group",
+    fill = "Population size",
+    title = "Population size over age groups and years by sex"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1), 
+    strip.text = element_text(face = "bold")          
+  )
+
+print(p3)
+```
+
+# Task4
+
+```{r}
+# Check if all the agegroups are the same
+setdiff(unique(cases$agegroup), unique(population$agegroup))  
+setdiff(unique(population$agegroup), unique(cases$agegroup))  
+
+# Check if all the years are the same
+setdiff(unique(cases$year), unique(population$year))  
+setdiff(unique(population$year), unique(cases$year))
+
+# Merge all data
+n_merged <- merge(cases, population, by = c("year", "agegroup", "sex"))
+names(n_merged)[names(n_merged) == "n"] <- "n_cases"
+# order year and agegroup
+n_merged$age_start <- as.numeric(sub("-.*", "", n_merged$agegroup))
+n_merged <- n_merged[order(n_merged$year, n_merged$age_start), ]
+n_merged$age_start <- NULL
+
+head(n_merged, 40)
+```
+
+### Answer: Yes, the population file includes the same age groups and calendar years as the file including the number of cases.
+
+```{r}
+# sum agegroup first and merge the data
+population_age_sum <- aggregate(n_pop ~ year + sex, data = population, FUN = sum)
+data_m <- merge(cases_age_sum, population_age_sum, by = c("year", "sex"))
+names(data_m)[names(data_m) == "n"] <- "n_cases"
+head(data_m,20)
+```
+
+# Task5
+
+```{r}
+n_merged$IR <- n_merged$n_cases / n_merged$n_pop
+data_m$IR <- data_m$n_cases / data_m$n_pop
+head(n_merged)
+head(data_m)
+```
+
+### incidence rate = number of new cases in a period / number of population at risk during the same period
+
+### I think this is the appropriate way of calculating an incidence rate.
+
+# Task6
+
+```{r}
+p4 <- ggplot(data_m, aes(x = year, y = IR, color = sex)) +
+  geom_point() +                      
+  geom_smooth(method = "loess", span = 0.5, se = FALSE) +  
+  labs(
+    x = "Year",
+    y = "Incidence rate",
+    color = "Sex",
+    title = "Smoothed incidence rate of colon cancer over time by sex"
+  ) +
+  theme_minimal()
+
+print(p4)
+```
+
+### Observation: 女性发病率始终比男性高；随时间逼近，发病率不断增加；男女发病率增长率都经历了先减慢后加快的变化趋势。
+
+# Task 7
+
+```{r}
+# Fit Poisson model
+poisson_model1 <- glm(n_cases ~ year + sex + offset(log(n_pop)),
+                     family = poisson(link = "log"),
+                     data = data_m)
+summary(poisson_model1)
+```
+
+# Task8
+
+```{r}
+# IR in 1970
+pre_data1 <- data.frame(
+  year = 1970,
+  sex = c("Male", "Female"),
+  n_pop = 1
+)
+log_n_cases_1 <- predict(poisson_model1, pre_data1, type="link")
+IR1 <- exp(log_n_cases_1)
+cat("The IR of male in 1970 is",IR1[1],"\n")
+cat("The IR of female in 1970 is",IR1[2],"\n")
+cat("The difference IR in 1970 between male and female is",abs(IR1[1]-IR1[2]),"\n")
+
+# IR in 2020
+pre_data2 <- data.frame(
+  year = 2020,
+  sex = c("Male", "Female"),
+  n_pop = 1
+)
+log_n_cases_2 <- predict(poisson_model1, pre_data2, type="link")
+IR2 <- exp(log_n_cases_2)
+cat("The IR of male in 2020 is",IR2[1],"\n")
+cat("The IR of female in 2020 is",IR2[2],"\n")
+cat("The difference IR in 2020 between male and female is",abs(IR2[1]-IR2[2]))
+```
+
+### Assumption: The instance rate grow over calendar years. The difference between male and female also grow.
+
+# Task9
+
+```{r}
+##???
+
+```
+
+# Task10
+
+```{r}
+dim(model.matrix(~ agegroup*year + sex*year, data=n_merged))
+# Crash down
+# poisson_model2 <- glm(n_cases ~  agegroup*year + sex*year,
+#                       offset = log(n_pop),
+#                       family = poisson,
+#                       data = n_merged)
+# summary(poisson_model2)
+```
+
+```{r}
+# refer to Task1, just pick up agegroup over 40
+n_merged_highr <- subset(n_merged, agegroup %in% c("40-44","45-49","50-54","55-59","60-64","65-69","70-74","75-79","80-84","85-89"))
+head(n_merged_highr,40)
+# keep group 
+dim(model.matrix(~ agegroup*year + sex*year, data=n_merged_highr))
+poisson_model2 <- glm(n_cases ~  agegroup*year + sex*year,
+                      offset = log(n_pop),
+                      family = poisson,
+                      data = n_merged_highr)
+summary(poisson_model2)
+```
+
+```{r}
+# forecast
+# IR in 1970 in agegroup 70-74 among males and females
+pre_data3 <- data.frame(
+  year = 1970,
+  agegroup = "70-74",
+  sex = c("Male", "Female"),
+  n_pop = 1
+)
+# IR in 1970 in agegroup 70-74 among males and females
+log_n_cases_3 <- predict(poisson_model2, pre_data3, type="link")
+IR3 <- exp(log_n_cases_3)
+cat("The IR of male in 1970 in agegroup 70-74 is",IR3[1],"\n")
+cat("The IR of female in 1970 in agegroup 70-74 is",IR3[2],"\n")
+
+# IR in 2020 in agegroup 70-74 among males and females
+pre_data4 <- data.frame(
+  year = 2020,
+  agegroup = "70-74",
+  sex = c("Male", "Female"),
+  n_pop = 1
+)
+
+log_n_cases_4 <- predict(poisson_model2, pre_data4, type="link")
+IR4 <- exp(log_n_cases_4)
+cat("The IR of male in 2020 in agegroup 70-74 is",IR4[1],"\n")
+cat("The IR of female in 2020 in agegroup 70-74 is",IR4[2])
+```
+
+# Task11
+
+```{r}
+# use median represent each agegroup
+n_merged_highr$age_mid <- sapply(strsplit(as.character(n_merged_highr$agegroup), "-"),
+                                  function(x) mean(as.numeric(x)))
+head(n_merged_highr)
+dim(model.matrix(~ age_mid*year + sex*year, data=n_merged_highr))
+```
+
+```{r}
+poisson_model3 <- glm(n_cases ~ age_mid*year + sex*year,
+                      family = poisson,
+                      offset = log(n_pop),
+                      data = n_merged_highr)
+
+summary(poisson_model3)
+```
+
+```{r}
+# forecast data from splined poisson model
+ages <- c(52, 72, 87)
+years <- sort(unique(n_merged_highr$year))
+sexes <- c("Female","Male")
+
+pred_spl <- expand.grid(
+  age_mid = ages,
+  year = years,
+  sex = sexes
+)
+pred_spl$n_pop <- 1
+pred_spl$fit <- predict(poisson_model3, newdata = pred_spl, type="response")
+
+# observed value
+obs_val <- subset(n_merged_highr,
+                 agegroup %in% c("50-54","70-74","85-89"))
+
+#plot
+p5 <- ggplot() +
+      geom_line(data = pred_spl,
+                aes(x = year, y = fit,
+                    color = sex, linetype = factor(age_mid)),
+                size = 1) +
+      geom_point(data = obs_val,
+                 aes(x = year, y = IR,
+                     color = sex, shape = agegroup),
+                 size = 2, alpha = 0.7) +
+      labs(y = "Incidence rate",
+           title = "Predicted and observed incidence rates") +
+      theme_bw()
+
+print(p5)
+
+```
+
+# Task12
+
+```{r}
+# calculate standard age distribution in 2022
+std_pop <- aggregate(
+  n_pop ~ sex + agegroup,
+  data = subset(n_merged, year == 2022),
+  FUN = sum
+)
+names(std_pop)[names(std_pop) == "n_pop"] <- "std_pop"
+head(std_pop)
+```
+
+```{r}
+mergecases_age_sum <- aggregate(n_cases ~ year + sex, data = n_merged, FUN = sum)
+head(mergecases_age_sum)
+
+mergecases_age_sum <- merge(mergecases_age_sum, std_pop,
+                 by = c("sex", "agegroup"),
+                 all.x = TRUE)
+head(mergecases_age_sum,60)
+```
+
+\`\`\`

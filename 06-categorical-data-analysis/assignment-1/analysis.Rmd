@@ -1,0 +1,414 @@
+---
+title: "Computer assignment 1"
+author: "Ziyi Wang & Min Zhu"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+  word_document: default
+  pdf_document: default
+---
+# Exercise 1:1
+```{r,echo=FALSE,results='hide'}
+library(epitools)
+library(knitr)
+library(MASS)
+```
+
+The raw data with their sums are as below:
+```{r, echo=FALSE}
+# Create the data table
+women_favor <- 309
+women_against <- 191
+men_favor <- 319
+men_against <- 281
+
+total_women <- 500
+total_men <- 600
+total_favor <- 628
+total_against <- 472
+grand_total <- 1100
+
+table_data <- matrix(c(women_favor, women_against, total_women,
+                       men_favor, men_against, total_men,
+                       total_favor, total_against, grand_total), 
+                    nrow = 3, byrow = TRUE,
+                    dimnames = list(Gender = c("Women", "Men", "Sum"),
+                                    Opinion = c("Favor", "Against","Sum")))
+table_data
+```
+
+## 1:1.1 Calculate percentages
+
+```{r, echo=FALSE}
+# For women
+women_favor_pct <- (women_favor / total_women) * 100
+women_against_pct <- (women_against / total_women) * 100
+
+# For men
+men_favor_pct <- (men_favor / total_men) * 100
+men_against_pct <- (men_against / total_men) * 100
+```
+Calculate the percentage in favor and against legal abortion for men and women separately:
+
+\[
+\text{P(women-in favor)} = \frac{309}{500} \times 100 = 61.8\%
+\]
+\[
+\text{P(women-against)} = \frac{191}{500} \times 100 = 38.2\%
+\]
+
+\[
+\text{P(men-in favor)} = \frac{319}{600} \times 100 = 53.17\%
+\]
+\[
+\text{P(men-against)} = \frac{281}{600} \times 100 = 46.83\%
+\]
+
+## 1:1.2 Chi-square test and likelihood ratio test
+
+Hypothesis testing
+
+H0: Gender and opinion are independent. 
+
+H1: Gender and opinion are not independent.
+
+```{r, echo=FALSE}
+# Calculate expected frequencies (under H0)
+expected_women_favor <- (total_women * total_favor) / grand_total
+expected_women_against <- (total_women * total_against) / grand_total
+expected_men_favor <- (total_men * total_favor) / grand_total
+expected_men_against <- (total_men * total_against) / grand_total
+```
+
+Expected values:
+\[
+E_{ij} = \frac{\text{Row total} \times \text{Column total}}{\text{Grand total}}
+\]
+\[
+E_{11} = \frac{500 \times 628}{1100} = 285.45, \quad E_{12} = \frac{500 \times 472}{1100} = 214.55
+\]
+\[
+E_{21} = \frac{600 \times 628}{1100} = 342.55, \quad E_{22} = \frac{600 \times 472}{1100} = 257.45
+\]
+
+```{r, echo=FALSE}
+# Pearson's chi-square statistic
+chi_square <- ((women_favor - expected_women_favor)^2 / expected_women_favor) +
+  ((women_against - expected_women_against)^2 / expected_women_against) +
+  ((men_favor - expected_men_favor)^2 / expected_men_favor) +
+  ((men_against - expected_men_against)^2 / expected_men_against)
+
+# Degrees of freedom
+df <- 1
+
+# p-value for chi-square test
+p_value_chi <- 1 - pchisq(chi_square, df)
+
+# Likelihood ratio statistic (G^2)
+G2 <- 2 * (women_favor * log(women_favor / expected_women_favor) +
+           women_against * log(women_against / expected_women_against) +
+           men_favor * log(men_favor / expected_men_favor) +
+           men_against * log(men_against / expected_men_against))
+
+```
+Chi-square statistic:
+\[
+\chi^2 = \sum \frac{(O - E)^2}{E} = \frac{(309 - 285.45)^2}{285.45} + \frac{(191 - 214.55)^2}{214.55} + \frac{(319 - 342.55)^2}{342.55} + \frac{(281 - 257.45)^2}{257.45} = 8.2979
+\]
+\[
+\quad \text{Degrees of freedom (df)} = (2 - 1)(2 - 1) = 1
+\]
+
+
+Likelihood ratio statistic:
+\[
+G^2 = 2 \sum O \ln\left(\frac{O}{E}\right)
+\]
+\[
+G^2 = 8.3223
+\]
+
+From results above, we can see that Pearson's $\chi^2$ statistic is 8.2979 and likelihood ratio statistics is 8.3223. Both of them are bigger than $\chi^2_1(0.05)=3.841459$, so we can reject the null hypothesis, which means from this survey, gender and opinion are not independent.
+
+## 1:1.3: Odds ratio with 95% confidence interval
+
+$$\hat{OR}=\frac{n_{11}n_{22}}{n_{12}n_{21}}$$
+$$SE=\sqrt{\frac{1}{n_{11}}+\frac{1}{n_{12}}+\frac{1}{n_{21}}+\frac{1}{n_{22}}}$$
+```{r}
+# Calculate odds
+odds_women_favor <- women_favor / women_against
+odds_men_favor <- men_favor / men_against
+
+# Odds ratio (women vs men)
+odds_ratio <- odds_women_favor / odds_men_favor
+cat("Odds ratio (women/men):", round(odds_ratio, 3), "\n")
+```
+
+```{r}
+# Standard error of log odds ratio
+se_log_or <- sqrt(1/women_favor + 1/women_against + 1/men_favor + 1/men_against)
+
+# 95% confidence interval for odds ratio
+log_or <- log(odds_ratio)
+lower_ci_log <- log_or - 1.96 * se_log_or
+upper_ci_log <- log_or + 1.96 * se_log_or
+
+lower_ci_or <- exp(lower_ci_log)
+upper_ci_or <- exp(upper_ci_log)
+cat("95% CI for odds ratio: (", round(lower_ci_or, 3), ",", round(upper_ci_or, 3), ")\n")
+```
+
+Interpretation: Women have 1.43 times the odds of being in favor of abortion compared to men, with 95% confidence interval (1.12, 1.81) indicating that we are 95% confident that in the general population, women's odds of supporting abortion are 12% to 81% higher than men's. Since the confidence interval does not contain $\theta=1$, the association between gender and opinion is significant.
+
+## 1:1.4: Risk ratio with 95% confidence interval
+
+$$\hat{r}=\frac{n_{11}/n_{1}}{n_{21}/n_{2}}$$
+$$SE=\sqrt{\widehat{Var}[log(\hat{r})]}=\sqrt{\frac{1-n_{11}/n_1}{n_{11}}+\frac{1-n_{21}/n_2}{n_{21}}}$$
+
+```{r}
+# Calculate risks
+risk_women <- women_favor / total_women
+risk_men <- men_favor / total_men
+
+# Risk ratio (women vs men)
+risk_ratio <- risk_women / risk_men
+cat("Risk ratio (women/men):", round(risk_ratio, 3), "\n")
+```
+```{r}
+# Standard error of log risk ratio
+se_log_rr <- sqrt((1/women_favor - 1/total_women) + (1/men_favor - 1/total_men))
+
+# 95% confidence interval for risk ratio
+log_rr <- log(risk_ratio)
+lower_ci_log_rr <- log_rr - 1.96 * se_log_rr
+upper_ci_log_rr <- log_rr + 1.96 * se_log_rr
+
+lower_ci_rr <- exp(lower_ci_log_rr)
+upper_ci_rr <- exp(upper_ci_log_rr)
+cat("95% CI for risk ratio: (", round(lower_ci_rr, 3), ",", round(upper_ci_rr, 3), ")\n")
+```
+
+Interpretation: Women are 1.16 times as likely to be in favor of abortion compared to men, with 95% confidence interval (1.05, 1.29) which means that we are 95% confident that women are between 1.05 and 1.29 times as likely as men to favor abortion, and this difference is statistically significant because the interval does not include 1.
+
+## 1:1.5: Using built-in R functions
+
+```{r}
+#Generate a frequency table and calculate row percentage
+tab1<- as.table(rbind(c(309, 191), c(319, 281)))
+dimnames(tab1) <- list(gender = c("women", "men"),opinion = c("favor","against"))
+addmargins(tab1)
+addmargins(prop.table(tab1,1),2)
+```
+
+```{r}
+#Calculate X2, G2 and p-values
+chisq.test(tab1,correct=FALSE)
+loglm(~gender+opinion,tab1)
+```
+
+```{r}
+#Calculate risk/odds ratio and confidence interval
+
+oddsratio(tab1, method = "wald", rev="both")
+```
+
+```{r}
+riskratio(tab1,rev="both")
+```
+
+Compared with “by hand” calculation, all the result are same as the result generated by r package.
+
+
+# Exercise 1:2
+
+## 1:2.1 Calculate X\^2, G\^2, Odds ratio and Risk ratio with 95% CI
+
+The given data with some sums are as below:
+
+```{r,echo=FALSE}
+# Entering data
+tab2 <- as.table(rbind(c(1198, 2691-1198), c(557, 1835-557)))
+dimnames(tab2) <- list(gender = c("men", "women"), result = c("admitted","not_admitted"))
+addmargins(tab2)
+```
+```{r,echo=FALSE,results='hide'}
+m_adm_r <- tab2[1,1]/sum(tab2[1,])
+w_adm_r<-tab2[2,1]/sum(tab2[2,])
+cat("men admit rate is:",m_adm_r,"\n")
+cat("women admit rate is:",w_adm_r,"\n")
+```
+
+Hypothesis testing H0: Gender and admission result are independent. H1: Gender and admission result are not independent.
+
+```{r,echo=FALSE,results='hide'}
+#Calculate X2, G2 and p-values
+chisq.test(tab2,correct=FALSE)
+loglm(~ gender + result,tab2)
+```
+
+<!-- Using R-functions, we can obtain that the likelihood ratio statistic $G^2$ is 93.4494 and $\chi^2$ statistic is 92.2053. Both of them are quite bigger than $\chi^2_1(0.05)=3.841459$. And the p-values of Pearson's Chi-square and the Likelihood Ratio test are all less than 0.05. So we can reject the null hypothesis, which means the admission result is dependent on gender. -->
+
+```{r,echo=FALSE,results='hide'}
+#Calculate odds ratio and confidence interval
+or2 <- oddsratio(tab2, method = "wald", rev="both")
+print(or2)
+```
+
+```{r,echo=FALSE,results='hide'}
+## calculate risk ratio
+rr2 <- riskratio(tab2,rev="both")
+print(rr2)
+```
+
+<!-- Similarly, using R functions to calculate OR and RR value with their confidence interval, we can see that Odds Ratio=1.84108 and the 95% CI for OR being [1.624377, 2.086693] doesn't contain $\theta=1$, so the association between gender and admission result is significant, which means that male applicants were 1.84 times as likely to be admitted as female applicants.\ -->
+<!-- And Risk Ratio = 1.466642 indicates that the probability of getting admitted for male applicants was about 1.47 times that of female applicants, with 95% confidence intervals [1.35235,1.590592].Both measures suggest that male applicants had a higher chance of being admitted than female applicants in 1975 and all the p-values are less than 0.05, showing that this difference is statistically significant. -->
+
+By using R functions, we can obtain Pearsons $X^2$, likelihood ratio $G^2$, odds ratio and risk ratio with confidence interval as shown in the table below:
+```{r,echo=FALSE}
+df1 <- data.frame(
+  Statistic  = c("Counts(W_adm, W_rej; M_adm, M_rej)","Total N","Women admit rate","Men admit rate", "Pearson's X^2(df=1); p","Likelihood-ratio G^2(df=1); p","OR(M vs W); 95%CI","RR(M vs W); 95%CI"),
+  Value = c("557, 1278; 1198, 1493", "4546","30.4%","44.5%","92.205; 0","93.449; 0","1.841; [1.624, 2.087]","1.466; [1.352,1.591]" )
+)
+
+kable(df1, caption = "Results of raw data")
+```
+### Interpretion of the result:
+From results above, we can see that Odds Ratio=1.841 and the 95% CI for OR being [1.624, 2.086] doesn't contain $\theta=1$, so the association between gender and admission result is significant, which means that male applicants were 1.84 times as likely to be admitted as female applicants.  
+Moreover, Risk Ratio = 1.466 indicates that the probability of getting admitted for male applicants was about 1.47 times that of female applicants, with 95% confidence intervals [1.352,1.591].   
+Both measures suggest that male applicants had a higher chance of being admitted than female applicants in 1975 and all the p-values are less than 0.05, showing that this difference is statistically significant.
+
+
+
+## 1:2.2 replace all numbers to one tenth and one hundredth
+The second task asks us to replace all numbers in the table to one-tenth and one-hundredth. After replacing all the numbers, again we use R-functions to get the statistics listed. The outcome is summarized in the following table.
+
+```{r,echo=FALSE,results='hide'}
+## change data to one tenth
+tab3 <- round(tab2/10,0)
+addmargins(tab3)
+```
+```{r,echo=FALSE,results='hide'}
+m_adm_r <- tab3[1,1]/sum(tab3[1,])
+w_adm_r<-tab3[2,1]/sum(tab3[2,])
+cat("men admit rate is:",m_adm_r,"\n")
+cat("women admit rate is:",w_adm_r,"\n")
+```
+
+```{r,echo=FALSE,results='hide'}
+#Calculate X2, G2 and p-values
+chisq.test(tab3,correct=FALSE)
+loglm(~gender+result,tab3)
+```
+
+```{r,echo=FALSE,results='hide'}
+#Calculate odds ratio and confidence interval
+or3 <- oddsratio(tab3, method = "wald", rev="both")
+print(or3)
+```
+
+```{r,echo=FALSE,results='hide'}
+#Calculate risk ratio
+rr3 <- riskratio(tab3,rev="both")
+print(rr3)
+```
+
+```{r,echo=FALSE,results='hide'}
+## change data to one hundredth
+tab4 <- round(tab2/100,0)
+addmargins(tab4)
+```
+```{r,echo=FALSE,results='hide'}
+m_adm_r <- tab4[1,1]/sum(tab4[1,])
+w_adm_r<-tab4[2,1]/sum(tab4[2,])
+cat("men admit rate is:",m_adm_r,"\n")
+cat("women admit rate is:",w_adm_r,"\n")
+```
+
+```{r,echo=FALSE,results='hide'}
+#Calculate X2, G2 and p-values
+chisq.test(tab4,correct=FALSE)
+loglm(~gender+result,tab4)
+```
+
+```{r,echo=FALSE,results='hide'}
+#Calculate odds ratio and confidence interval
+or4 <- oddsratio(tab4, method = "wald", rev="both")
+print(or4)
+```
+
+```{r,echo=FALSE,results='hide'}
+#Calculate risk ratio
+rr4 <- riskratio(tab4,rev="both")
+print(rr4)
+```
+
+
+```{r,echo=FALSE}
+df2 <- data.frame(
+  Statistic  = c("Counts(W_adm, W_rej; M_adm, M_rej)","Total N","Women admit rate","Men admit rate", "Pearson's X^2(df=1); p","Likelihood-ratio G^2(df=1); p","OR(M vs W); 95%CI","RR(M vs W); 95%CI"),
+  Value_tenth = c("56, 128; 120, 149", "453","30.4%","44.6%","9.241; 0.00237","9.364; 0.00221","1.841; [1.240, 2.734]","1.466; [1.135,1.893]" ),
+  Value_hundredth = c("6, 13; 12, 15", "46","31.6%","44.4%","0.774; 0.379","0.783; 0.376","1.733; [0.507,5.928]","1.407; [0.642,3.085]" ))
+
+kable(df2, caption = "Results of divided data")
+```
+Observation1: After replacing all numbers to one tenth, the value of $\chi^2$ and $G^2$ also decrease to approximately one-tenth of the original values, and the corresponding p-values get larger. We can also see that the OR and RR values stay almost the same with the values obtained in Question 1. And for the 95% confidence intervals of OR and RR, the range become larger.  
+
+Observation2: When the table values are reduced to one-hundredth of the original counts, the $\chi^2$ and $G^2$ value also decrease by two orders of magnitude, but the slight numerical differences arise from rounding errors introduced when dividing the cell counts by 100; In contrast, the OR and RR values maintain the same order of magnitude as the results from question 1, showing only minor numerical variations. And for the 95% confidence intervals of OR and RR, they show a much wider interval.
+
+### Comment on the observation:   
+
+The test statistics $\chi^2$ and $G^2$ are directly proportional to the sample size, because they measure the absolute value of discrepancy between observed and expected values, and with $df$ remaining the same and total n smaller, p-value gets bigger naturally;  
+OR and RR values are independent of sample sizes, because they value the relative difference based on proportions, as long as the proportion remain the same within tables, they stay invariant. Moreover, the confidence intervals of OR and RR become wider when sample sizes decrease due to an increase in standard error, reflecting a lower precision of the estimation. 
+
+These patterns remind us that when evaluating statistical significance, we should pay attention to both inner proportion and size of a sample. We should always consider the magnitude of the effect along with its precision of estimate, rather than only focusing on p-values.
+
+
+## 1:2.3
+
+We assume that H0: θ= 1. Our aim is to make the population odds ratio (θ) differ from 1, thus we need to reject H0, which means a small p-value and a big $\chi^2$ is what we want. From previous result, we know that the larger sample size is, the larger $\chi^2$ we can obtain. Also we need the sample odds ratio to be around 1, thus the new two-way table can be made like below:
+
+```{r,echo=FALSE}
+# making up new data
+tab5 <- as.table(rbind(c(500000, 500000), c(498550, 502900)))
+dimnames(tab5) <- list(gender = c("men", "women"), 
+                       result = c("admitted","not_admitted"))
+addmargins(tab5)
+```
+
+```{r,echo=FALSE,results='hide'}
+# calculating sample or
+or5 <- oddsratio(tab5, method = "wald", rev="neither")
+print(or5)
+```
+
+```{r,echo=FALSE,results='hide'}
+loglm(~gender+result,tab5)
+```
+Here we capture some key statistics about this self-made data in the following table: 
+```{r,echo=FALSE}
+df3 <- data.frame(
+  Statistic  = c("population odds ratio(under H0)","population odds ratio(under H1)","Sample odds ratio","p-value" ),
+  Value_hundredth = c("1","≠1","1.008725, within the interval(0.99,1.01)","0.00212218"))
+
+kable(df3, caption = "Results of self-made data")
+```
+
+
+### Comment about the relevance to declare 'statistical significance':
+
+In this case, we created a two-way table with a sample odds ratio of approximately 1.01, but the hypothesis test showed a statistically significant result (p \< 0.05), indicating that the population odds ratio is significantly different from 1. This highlights a critical aspect of statistical significance: it is highly influenced by sample size.
+
+With a large sample size (e.g., Total = 2001450 in our table), even trivial effect sizes—like an odds ratio of 1.01, which represents a negligible association in practice—can become statistically significant. This occurs because statistical tests (e.g., Pearson's chi-square) are designed to detect even minute deviations from the null hypothesis when sample sizes are large. However, statistical significance alone does not imply practical or clinical importance.
+
+In such situations, declaring "statistical significance" can be misleading if interpreted as evidence of a meaningful effect. It emphasizes the need to complement p-values with measures of effect size (e.g., odds ratio, risk ratio) and their confidence intervals. For instance, in this case, the odds ratio is very close to 1, and its confidence interval would likely be narrow and include values near 1, indicating that the effect is negligible in real-world terms.
+
+Therefore, when reporting results, we would prefer to:
+
+·Report the effect size (e.g., odds ratio) and its confidence interval to provide context on the magnitude and precision of the effect.
+
+·Avoid overemphasizing statistical significance alone, especially in large samples, and instead discuss whether the effect size is meaningful in the given domain.
+
+·Encourage readers to focus on practical significance rather than just p-values.
+
+This exercise underscores the importance of not equating statistical significance with practical relevance, a common pitfall in data analysis.

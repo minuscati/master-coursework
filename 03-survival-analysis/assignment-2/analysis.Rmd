@@ -1,0 +1,502 @@
+---
+title: "Survival Analysis - Assignment 2"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+date: "2026-03-12"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+```
+
+### Q1 Frailty model
+In a frailty model, the hazard rate at time $t$ and conditional on a frailty $Z$ is 
+$$\alpha(t|Z)=Z\cdot\alpha(t).$$ 
+Given $Z$, the survival function to time $t$ is 
+$$S(t|Z)=exp(-Z\int_0^t\alpha(u)du)=exp(-ZA(t)).$$
+Introducing the Laplace transform and the population function is found by integrating over the distribution of $Z$
+$$
+S(t)=\int_0^tf_Z(z)e^{-zA(t)}dz=E_Z(e^{-zA(t)})=\mathcal L(A(t)).
+$$
+The population hazard rate is
+$$
+\mu(t)=-\frac{d}{dt}log(\mathcal L(A(t)))=-\frac{\frac{d}{dt}\mathcal L(A(t))}{\mathcal L(A(t))}=\alpha(t)\frac{-\mathcal L'(A(t))}{\mathcal L(A(t))}
+$$
+Naming the coefficient as $G(A(t))$, $G(A(t))=\frac{-\mathcal L'(A(t))}{\mathcal L(A(t))}$.<br>
+Taking the first derivative of $G(A(t))$, we obtain
+$$
+G^{\prime}(A(t))=\frac{-\mathcal{L}^{\prime \prime}(A(t))\mathcal{L}(A(t))+(\mathcal{L}^{\prime}(A(t)))^{2}}{[\mathcal{L}(A(t))]^{2}}.
+$$
+With $\mathcal L(A(t))=E(e^{-zA(t)})$, $\mathcal L'(A(t))=-E(Ze^{-zA(t)})$, $\mathcal L''(A(t))=E(Z^2e^{-zA(t)})$,<br>
+the numerator of $G'(A(t))$ is then
+$$
+-(E(Z^2e^{-zA(t)}))\cdot E(e^{-zA(t)})+(-E(Z^{-zA(t)}))^2
+$$
+According to the Cauchy-Schwarz Inequality $[E(XY)]^2\leq E(X^2)\cdot E(Y^2)$, the numerator is negative, indicating that the coefficient $G(A(t))$ is decreasing over $t$.
+<br>
+When $t=0$, $A(0)=0$, $\mathcal L(A(0))=1$, $\mathcal L'(A(0))=E(Z)=1$, 
+$$G(A(0))=\frac{-\mathcal L'(A(0))}{\mathcal L(A(0))}=1.$$
+Thus when $t\geq0$, 
+$$
+G(A(t))\leq G(A(0))=1\\
+\mu(t)=\alpha(t)\cdot G(A(t)) \leq\alpha(t).
+$$
+Therefore, we reach the conclusion that the population hazard is less than or equal to $\alpha(t)$.
+<br>
+<br>
+
+### Q2 Poisson likelihood
+First, we prove that this model can be fitted using Poisson regression in theory.
+The baseline hazard is $h_0(t)=2\lambda t$, thus 
+$$
+h(t|x)=2\lambda t\cdot exp(\beta^Tx),\\
+H(t|x)=\int_0^t h(u|x)du=\lambda t^2 \cdot exp(\beta^Tx).
+$$
+Assuming that $i\in \{1,...,n\}$, for right-censored data, the likelihood L is
+$$
+L(\theta)=\prod_{i=1}^nh(t_i|x_i)^{\delta_i} \cdot S(t_i|x_i)
+$$
+The full log-likelihood is then
+$$
+\begin{align}
+   l(\theta)&=\sum_{i=1}^n \{\delta_ilog(h(t_i|x_i))-H(t_i|x_i)\}\\
+            &=\sum_{i=1}^n \{\delta_ilog(H(t_i|x_i))-H(t_i|x_i)\}+\sum_{i=1}^n \delta_ilog\left(\frac{h(t_i|x_i)}{H(t_i|x_i)}\right)\\
+\end{align}
+$$
+
+The first term follows the structure of a Poisson distribution and is a Poisson kernel. Therefore, $\delta_i$ can be viewed as a Poisson variable, and $H(t_i|x_i)$ can be regarded as the Poission mean.
+
+$$
+E(\delta_i)=H(t_i|x_i)\\
+\begin{align}
+log\left(E(\delta_i)\right)&=log\left(H(t_i|x_i)\right)\\
+            &=log\left(\lambda {t_i}^2exp(\beta^T x_i)\right)\\
+            &=log\lambda+\beta^Tx_i+2log(t_i)
+\end{align}
+$$
+The result shows that the offset of this Poisson regression model is $2log(t_i)$.
+
+<br>
+Next, we esitimate $\beta, \lambda$ with simulated data.
+Since $S \in [0,1]$, we assume $S$ follows the standard uniform distribution, and we obtain $t$:
+$$
+S=exp(-H(t))=exp(-\lambda t^2 \cdot exp(\beta^Tx))\\
+log U=-\lambda t^2 \cdot exp(\beta^Tx)\\
+t=\sqrt{\frac{-logU}{\lambda exp(\beta^Tx)}}
+$$
+The simulation process is hereby:
+
+```{r}
+set.seed(1125)
+
+# set variable
+n <- 1000
+lambda_true <- 0.5
+beta_true <- 1.2
+x <- rnorm(n)
+u <- runif(n)
+
+# construct t, delta
+t_event <- sqrt(-log(u)/(lambda_true*exp(beta_true*x)))
+censoring_time <- 1.5
+t_obs <- pmin(t_event, censoring_time)
+delta <- as.numeric(t_event <= censoring_time)
+
+# build poisson model
+X <- cbind(1, x)
+fit <- glm.fit(x = X, y = delta,
+                offset = 2*log(t_obs),
+                family = poisson())
+
+# extract estimation value
+beta_est <- coef(fit)["x"]
+lambda_est <- exp(coef(fit)[1])
+
+cat("\n--- Esitimation Result ---",
+    "\nBeta Estimated:", round(beta_est, 4), " (True:", beta_true,")",
+    "\nLambda Estimated:", round(lambda_est, 4), " (True:", lambda_true,")")
+
+# obtain std_error
+W <- fit$weights
+info_matrix <- t(X) %*% (W * X)
+vcov_matrix <- solve(info_matrix)
+std_er <- sqrt(diag(vcov_matrix))
+beta_se  <- std_er[2]
+# Delta method
+lambda_se  <- lambda_est * std_er[1] # g'(theta) * SE(theta)
+
+# print results
+cat("\n")
+cat("SE of Beta:", beta_se, "\n")
+cat("SE of Lambda:", lambda_se, "\n")
+```
+### Q3 Weibull Regression
+To prove that the Weibull distribution is the only distribution which is both Proportional Hazards (PH) and Accelerated Failure Time (AFT), is to show that, if a survival function $S_0(t)$ satisfies the identity $[S_0(t)]^\psi = S_0(t/\phi)$ for all $\psi,\phi>0$, then $S_0(t)$ must take the form of a Weibull survival function.<br>
+We derive the proof as below:
+$$
+[S_0(t)]^\psi = S_0(t/\phi)
+$$
+Taking the logarithm of both sides and with the relationship between $S$ and $H$($H_0(t)=-lnS_0(t)$), we obtain
+$$
+\psi\cdot ln\left(S_0(t)\right)=ln\left(S_0(t/\phi)\right)\\
+\psi H_0(t)=H_0(t/\phi)\\
+$$
+Setting $t=1$ and substituting back,
+$$
+\psi=\frac{H_0(1/\phi)}{H_0(1)}\\
+\frac{H_0(1/\phi)}{H_0(1)} \cdot H_0(t)=H_0(t/\phi)
+$$
+Dividing both sides by $H_0(1)$ and define $M(k)=\frac{H_0(k)}{H_0(1)}$,
+$$
+M(1/\phi) \cdot M(t)=M(t/\phi)\\
+\frac{dM(1/\phi)}{d\phi}\cdot M(t)=\frac{dM(t/\phi)}{d\phi}\\
+-\frac{1}{\phi^2}M'(1/\phi)\cdot M(t)=-\frac{t}{\phi^2}M'(t/\phi)\\
+$$
+Setting $\phi=1$ and solve the ODE
+$$
+M'(1)\cdot M(t)=t\cdot M'(t)\\
+\frac{M'(t)}{M(t)}=\frac{M'(1)}{t}\\
+ln M(t)=M'(1)lnt+C\\
+$$
+When $t=1$, we got $M'(1)\cdot M(1)=1\cdot M'(1)$, i.e. $M(1)=1$. 
+We also have $ln M(1)=M'(1)ln1+C$, thus $C=0$.<br>
+Therefore, $M(t)$ has the solution 
+$$
+M(t)=t^{G'(1)}=t^\gamma
+$$
+Transforming back to the $H_0$, and denote $H_0(1)=\lambda$,
+$$
+H_0(t)=\lambda\cdot t^\gamma\\
+S_0(t)=exp(-H_0(t))=exp(-\lambda\cdot t^\gamma)
+$$
+Since $S_0(t)$ here follows the standard form of a Weibull distribution, the proof is done.
+
+
+### Q4 RMST calculations
+To obtain RMST from a survPen model, we fit the model by specifying penalized resticted cubic splines for time and including treat as the main exposure variable. To calculate 95% confidence intervals, delta method is used and the derivation is:
+$$
+\text{grad_RMST}=\frac{\partial RMST}{\partial \beta}=\frac{\partial \int S dt}{\partial \beta}=\int \frac{\partial exp(-H)}{\partial \beta}dt=\int -S \frac{\partial H}{\partial \beta}dt=\int \text{grad_S} dt\\
+\text{grad_S}=-S*\frac{\partial H}{\partial \beta}=-S*\text{grad_H}\\\
+\text{grad_H}=\frac{\partial H}{\partial \beta}=\frac{\partial \int h dt}{\partial \beta}=\int \frac{\partial exp(\eta)}{\partial \beta}dt=\int \frac{\partial exp(\beta X)}{\partial \beta}dt=\int h\cdot Xdt
+$$
+Thus, 
+$$
+Var(RMST)=\left(\text{grad_RMST}\right)^T \cdot Var(\beta) \cdot\left(\text{grad_RMST}\right)
+$$
+
+
+
+```{r}
+# hint: delta method; make a plot/table for difference
+# install.packages("survPen")
+library("survPen")
+data_bre <- collett::breast_rfs
+head(data_bre)
+```
+
+```{r}
+model_Pen <- survPen(~ treat + smf(time), 
+                         data = data_bre, 
+                         t1 = time, 
+                         event = status)
+
+t_seq <- seq(0, 1826, length.out = 100)
+dt <- t_seq[2] - t_seq[1]
+
+# first non-treated then treated
+pred_data <- data.frame(
+  time = rep(t_seq,2),
+  treat = rep(c(0,1), each = length(t_seq))
+)
+
+pred.pen <- predict(model_Pen, newdata = pred_data)
+h_t <- pred.pen$haz
+S_t <- pred.pen$surv
+
+# point estimation
+rmst_est0 <- sum(S_t[1:100]) * dt
+rmst_est1 <- sum(S_t[101:200]) * dt
+rmst_diff <- rmst_est1 - rmst_est0
+
+# interval estimation
+X_pen <- predict(model_Pen, newdata = pred_data, type = "lpmatrix")
+Var_beta <- model_Pen$Vp
+grad_H0 <- apply(X_pen[1:100,] * h_t[1:100] * dt, 2, cumsum)
+grad_S0 <- -S_t * grad_H0
+
+grad_H1 <- apply(X_pen[101:200,] * h_t[101:200] * dt, 2, cumsum)
+grad_S1 <- -S_t * grad_H1
+
+grad_RMST0 <- colSums(grad_S0)*dt
+grad_RMST1 <- colSums(grad_S1)*dt
+
+Var_est0 <- as.numeric(t(grad_RMST0) %*% Var_beta %*% grad_RMST0)
+se_est0 <- sqrt(Var_est0)
+Var_est1 <- as.numeric(t(grad_RMST1) %*% Var_beta %*% grad_RMST1)
+se_est1 <- sqrt(Var_est1)
+  
+grad_diff <- grad_RMST1 - grad_RMST0
+Var_diff <- as.numeric(t(grad_diff) %*% Var_beta %*% grad_diff)
+se_diff <- sqrt(Var_diff)
+
+results <- data.frame(
+  Term = c("RMST0 (T0)", "RMST1 (T1)", "RMST Difference (T1 - T0)"),
+  Estimate = c(rmst_est0, rmst_est1, rmst_diff),
+  Std.Error = c(se_est0, se_est1, se_diff),
+  Conf.Low = c(
+    rmst_est0 - 1.96 * se_est0,
+    rmst_est1 - 1.96 * se_est1,
+    rmst_diff - 1.96 * se_diff
+  ),
+  Conf.High = c(
+    rmst_est0 + 1.96 * se_est0,
+    rmst_est1 + 1.96 * se_est1,
+    rmst_diff + 1.96 * se_diff
+  )
+)
+
+print(results)
+```
+
+
+### Q5 Likelihoods
+From the setting of the question, we only know the months of registration and events, rather than the exact time. So we do the following assumption:
+<br>
+Assume the month of registration is $M_R=0$ and the month of event is $M_E=k$. Since the registration is distributed across a month, we further assume the exact registering time $t_R$ is uniformly distributed, that is, $t_R \sim U(0,1)$. 
+
+#### Status{1,2}:
+Similarly, $t_E$ for status $\{1,2,3\}$ is $t_E \sim U(k,k+1)$.
+<br> For status $\{1,2\}$, the survival time $T=t_E-t_R$. Here $T$ is the difference of two uniformly distributed random variables, thus it can be expressed as a convolution process. With $t_E,t_R$ setted, it can be considered as the exact time occasion, and the corresponding likelihood is
+$$
+\begin{aligned}
+L&=\int_0^1\int_k^{k+1}f(t_E-t_R)dt_Edt_R\\
+ &=\int_0^1F(k+1-t_R)-F(k-t_R)dt_R\\
+ &=\int_0^1S(k-t_R)-S(k+1-t_R)dt_R
+\end{aligned}
+$$
+#### Status{3}:
+For status $\{3\}$, we know that the Survival time $T>t_E-t_R$, it's the right-censored occasion. The corresponding likelihood is 
+$$
+\begin{aligned}
+L&=Pr(T>t_E-t_R)\\
+ &=\int_0^1\int_k^{k+1}S(t_E-t_R)dt_Edt_R\\
+\end{aligned}
+$$
+#### Status{4}
+As the event time here is assumed to be the end of the month, we got $t_E=k+1$. It is also a right-censored occasion and the survival time is then $T>k+1-t_R$. The corresponding likelihood is
+$$
+\begin{aligned}
+L&=Pr(T>k+1-t_R)\\
+ &=\int_0^1S(k+1-t_R)dt_R\\
+\end{aligned}
+$$
+
+
+### Q6 Competing risks
+```{r, include=FALSE}
+# Load library
+library(survival)
+# Load the mgus2 dataset
+mgus2 <- survival::mgus2
+# 1. Prepare data for cause-specific hazard model
+# Event 1 = Progression to PCM
+# Event 2 = Death without progression (Censored in Cox)
+mgus2$status_pcm <- ifelse(mgus2$pstat == 1, 1, 0)
+cox_mod <- coxph(Surv(futime, status_pcm) ~
+age + sex + hgb, data = mgus2)
+summary(cox_mod)
+
+# 2. Prepare data for subdistribution hazard (Fine-Gray)
+# Create the event indicator
+# 0 = censored, 1 = PCM, 2 = Death
+mgus2$event_type <-
+factor(with(mgus2, ifelse(pstat == 1, 1,
+ifelse(death == 1, 2, 0))))
+# Use the finegray function to expand the data
+fg_data <- finegray(Surv(futime, event_type) ~ .,
+data = mgus2, etype = "1")
+fg_mod <- coxph(Surv(fgstart, fgstop, fgstatus) ~
+age + sex + hgb, data = fg_data,
+weight = fgwt)
+summary(fg_mod)
+
+# Compare Hazard Ratios for Age
+# Extract HR and 95% CI for Age from Cox Model
+cox_sum <- summary(cox_mod)
+cox_ci <- cox_sum$conf.int["age", ]
+cat("Cox (csHR) for Age:", round(cox_ci[1], 3),
+" 95% CI: [", round(cox_ci[3], 3), ",",
+round(cox_ci[4], 3), "]\n")
+
+# Extract HR and 95% CI for Age from Fine-Gray Model
+fg_sum <- summary(fg_mod)
+fg_ci <- fg_sum$conf.int["age", ]
+cat("Fine-Gray (sHR) for Age:", round(fg_ci[1], 3),
+" 95% CI: [", round(fg_ci[3], 3), ",",
+round(fg_ci[4], 3), "]\n")
+```
+
+#### a)
+1. Difference between the cause-specific hazard ratio(csHR) and the subdistribution hazard ratio(sHR):
+$$
+csHR=\frac{h_{j}(t|X=1)}{h_{j}(t|X=0)}
+$$
+where 
+$$
+h_{j}(t|X=x)=\lim_{\Delta t\to0}\frac{P(t\leq T<t+\Delta t,C=j|T\geq t, X=x)}{\Delta t}
+$$ 
+$$
+sHR=\frac{\lambda_{j}(t|X=1)}{\lambda_{j}(t|X=0)}
+$$
+where
+$$
+\begin{aligned}\lambda_{j}(t|X=x)&=\lim_{\Delta t\rightarrow0}\frac{P(t\leq T<t+\Delta t,C=j|T\geq t\cup(T<t,C\neq j),X=x)}{\Delta t}\\\end{aligned}
+$$ 
+
+Both ratios quantify the instantaneous rate of the event of interest (PCM), but they differ in the risk sets (the denominator of the hazard function). <br>
+* For csHR, the risk set is people who are event-free. In this model, an individual is removed from the risk set once they experienced PCM or death, and the competing event is treated as censored.<br>
+* For sHR, the risk set consists of all people who have not experienced the event of interest(PCM), that is, individuals who experienced the competing event are retained in the risk set. 
+
+
+2. Why do the estimated hazard ratios for age differ
+It is shown in the output that $csHR=1.024>1$ and $cHR=0.983<1$. This occurs because as age increases, the rate of competing deaths in the elderly outpaces the rate of PCM progression, leading to a lower subdistribution hazard despite a higher cause-specific hazard.
+
+3.What does each one tell us about the effect of age on PCM 
+* $csHR=1.024$ implies that every unit increase in age leads to a higher risk of progressing to PCM by around 2.4%.
+* $cHR=0.983$ demonstrates that when people get older, the instantaneous risk decreases 1.7% per year because they have a higher probability of dying.
+
+
+#### b)
+```{r}
+library(mstate)
+
+# label event type
+mgus2$event_type <- factor(with(mgus2, ifelse(pstat == 1, 1, 
+                                        ifelse(death == 1, 2, 0))),
+                           levels = 0:2, 
+                           labels = c("censored", "PCM", "Death"))
+
+# stratify by sex
+data_f <- subset(mgus2, sex == "F")
+data_m <- subset(mgus2, sex == "M")
+
+# construct two Aalen-Johansen separately
+ajfit_f <- survfit(Surv(futime, event_type) ~ 1, data = data_f)
+ajfit_m <- survfit(Surv(futime, event_type) ~ 1, data = data_m)
+
+# plot CIF
+# max(data_f$futime)
+par(mfrow = c(1, 2))
+plot(ajfit_f, col = c("red", "black"), xmax = 400, lwd = 2, 
+     xlab = "Months from diagnosis", ylab = "Probability",
+     main = "Sex = Female")
+legend("topleft", c("PCM", "Death"), col = c("red", "black"), lty = 1, lwd = 2, bty = "n")
+
+# max(data_m$futime)
+plot(ajfit_m, col = c("red", "black"), xmax = 400, lwd = 2, 
+     xlab = "Months from diagnosis", ylab = "Probability",
+     main = "Sex = Male")
+legend("topleft", c("PCM", "Death"), col = c("red", "black"), lty = 1, lwd = 2, bty = "n")
+```
+
+Yes, male and female patients have different cumulative risks of PCM over time. Observing the plots, the risk of female patients shows a steady and consistent increase throughout the follow-up, and there is a sharper rise toward the end of the observation period, with the cumulative incidence eventually reaching approximately 0.22. While for male patients，the progression is more gradual compared to females. The curve appears to stabilize at around 0.15 starting from approximately the 300-month.
+
+
+#### c)
+i)
+When death is present as a competing risk, Kaplan-Meier estimator still treat it as censored. It corresponds to the CIF as below
+$$
+\begin{align*}S_{j}(t)&=1-\int_{0}^{t}h_{j}(u)\exp\left(-H_{j}(u)\right)du\\&\leq1-\int_{0}^{t}h_{j}(u)\exp\left(-\sum_{j=1}^{K}H_{j}(u)\right)du=1-F_{j}(t),\end{align*}
+$$ 
+
+$$
+\begin{align*}F_{jKM}(t)&=1-S_{jKM}(t)\\
+                        &=\int_{0}^{t}h_{j}(u)\exp\left(-H_{j}(u)\right)du\\
+              F_{jAJ}(t)&=1-S_{j}(t)\\
+                        &=\int_{0}^{t}h_{j}(u)\exp\left(-\sum_{j=1}^{K}H_{j}(u)\right)du\end{align*}
+$$ 
+As shown in the formulas, the "fake" KM-based CIF ($F_{jKM}$) integrates the hazard over a survival probability that only considers one cause, whereas the true CIF $F_jAJ$(which is also the AJ-estimator) integrates over the all-cause survival probability $S_{all}(t) = \exp(-\sum H_k(t))$. This leads to $F_{jKM}(t) \geq F_{jAJ}(t)$, proving that KM consistently overestimates the risk of the PCM when competing risks are present, while Aalen_Johansen estimator provides unbiased estimates.
+
+ii) Plot of two estimators 
+```{r}
+# AJ-estimator
+aj_fit <- survfit(Surv(futime, event_type) ~ 1, data = mgus2)
+
+# KM-estimator
+km_fit <- survfit(Surv(futime, pstat) ~ 1, data = mgus2)
+
+# plot
+plot(aj_fit[,"PCM"], 
+     conf.int = FALSE,        
+     col = "blue", 
+     lwd = 2, 
+     # xmax = 400,
+     ylim = c(0, 1),
+     xlab = "Months", 
+     ylab = "Cumulative Incidence of PCM",
+     main = "Comparison of AJ and KM Estimators")
+
+lines(km_fit, 
+      fun = "event", 
+      conf.int = FALSE,          
+      col = "red", 
+      lwd = 2, 
+      lty = 2)
+
+legend("topleft", 
+       c("Aalen-Johansen", "Kaplan-Meier"),
+       col = c("blue", "red"), 
+       lty = c(1, 2), 
+       lwd = 2, 
+       bty = "n")
+```
+<br>
+As shown in the figure, the K-M estimator always yields a higher CIF of PCM compring to the A-J estimator, demonstrating an overestimated bias.
+
+### Q7 Net survival
+(a)
+These two estimators differ mainly in how they weight individuals based on their expected mortality.
+Ederer II Estimator: 
+$$
+\hat{\Lambda}_{E}^{*}(t)=\int_{0}^{t}\frac{dN(u)}{Y(u)}-\int_{0}^{t}\frac{\sum_{i=1}^{n}Y_{i}(u)d\Lambda_{Pi}(u)}{\sum_{i=1}^{n}Y_{i}(u)}
+$$ 
+In Ederer II estimator, the expected mortality rate $d\Lambda_{Pi}(u)$ appears only in the numerator of the subtrahend and is weighted by $Y_i(u)$, representing the individuals currently at risk. This arithmetic mean term reflects the average background risk of the remaining survivors at each time point. However, as individuals with higher background mortality are progressively removed from the risk set, the risk set shifts towards those mainly contains people with lower background risk. Consequently, Ederer II fails to provide an adequate correction.
+<br>
+Pohar-Perme Estimator: 
+$$
+\hat{\Lambda}_{E}(t)=\int_{0}^{t}\frac{dN^{w}(u)}{Y^{w}(u)}-\int_{0}^{t}\frac{\sum_{i=1}^{n}Y_{i}^{w}(u)d\Lambda_{Pi}(u)}{Y^{w}(u)}\\
+N_i^w(t) = \frac{N_i(t)}{S_{Pi}(t)}, Y_i^w(t) = \frac{Y_i(t)}{S_{Pi}(t)}
+$$ 
+In Pohar-Perme Estimator, the expected mortality rate is used through inverse-probability weighting (IPW):$1/S_{Pi}(u) =1/ \exp(-\int_0^u \lambda_{Pi}(s)ds)$. In this way, for individuals with a high background mortality, they have a huge weight too, effectively eliminating the influence of high mortality rate, thus leading to an unbiased estimation of net survival.
+
+(b)
+There exists a bias of Ederer II when background mortality is high, because it fails to properly account for informative censoring caused by high background mortality.
+Mathematically, the net hazard that Ederer II estimates is  
+
+$$
+\lambda^*_{E}(t)=\frac{\sum_{i}S_{i}^{O}(t)\lambda_{E i}(t)}{\sum_{i}S_{i}^{O}(t)},
+$$ 
+where $S_i^O(t)=S_i^E(t)S_i^P(t)$ is the observable net survival probability. While the true net hazard is
+
+$$
+\lambda_{E}(t)=\frac{\sum_{i}S_{i}^{E}(t)\lambda_{E i}(t)}{\sum_{i}S_{i}^{E}(t)}.
+$$ 
+For individuals whose background mortality is high, they die faster from other causes, and are removed from the risk earlier. High in $\lambda$ also leads to expected survival ($S_{Pi}$) dropping rapidly, causing such patients to be down-weighted faster in the Ederer II calculation. This down-weighting them creates a selection bias that the risk set shifts towards those mainly contains people with lower background risk. Consequently, the Ederer II estimator underestimates the expected hazard, leading to an overestimation in net survival.
+<br>
+
+
+AI declaration:
+In Q2, when I want to use "glm" function to build model, my R explode for no reason, so I use "glm.fit" function, and use AI to compute stand error since I can not get from "summary fit" here.
+
+
+<!-- Copyright <2025> -->
+<!-- MIT License -->
+
+<!-- Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the “Software”), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions: -->
+
+<!-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software. -->
+
+<!-- THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. -->
+

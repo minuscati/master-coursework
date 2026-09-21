@@ -1,0 +1,249 @@
+---
+title: "Computer Assignment 2"
+author: "Min Zhu & Ziyi Wang"
+date: "`r Sys.Date()`"
+output: pdf_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Exercise 2:2
+
+## 2:2.1 Estimate risk, plot graphs and assess the suitability of the logistic regression model
+
+```{r}
+# Create the data frame
+logdos <- c(-7.60, -6.22, -4.60, -3.00, -1.39, 0.92)
+n <- c(18, 19, 28, 32, 28, 40)
+x <- c(1, 2, 4, 9, 12, 32)
+#no_tumor <- c(17, 17, 24, 23, 16, 8)
+
+
+data22 <- data.frame(logdos, x, n)
+data22
+```
+
+```{r}
+# Estimate for each dose separately the risk (probability)
+risk <- x / n
+risk_data <- data.frame(logdos, risk)
+risk_data
+```
+
+```{r}
+# Plot the risk against log(dos)
+plot(risk_data$logdos, risk_data$risk, 
+     xlab = "log(dose)", ylab = "Risk (Probability)", 
+     main = "Risk vs log(dose)",
+     pch = 16, col = "blue", ylim = c(0, 1))
+lines(risk_data$logdos, risk_data$risk, col = "blue")
+
+```
+
+```{r}
+# Calculate the logodds for tumor
+log_odds <- log(risk / (1-risk))
+log_odds_data <- data.frame(logdos, log_odds)
+log_odds_data
+```
+
+```{r}
+# Plot the logodds against log(dose).
+plot(log_odds_data$logdos, log_odds_data$log_odds, 
+     xlab = "log(dose)", ylab = "log(odds)", 
+     main = "log(odds) vs log(dose)",
+     pch = 16, col = "black")
+abline(lm(log_odds ~ logdos, data = log_odds_data), col = "red")
+
+```
+
+From the plot of Risk vs log(dose), it can be seen that the relationship
+between logarithmic dose and risk is nonlinear, so directly fitting a
+linear model would be inappropriate. However, after calculating the
+log-odds, the plot of log(odds) against log(dose) reveals an
+approximately linear relationship between the log-odds and the
+logarithmic dose. This linearity is a core assumption of the logistic
+regression model. Therefore, the logistic regression model is
+well-suited for modeling the log-odds in relation to log(dose), as they
+demonstrate a linear association.
+
+## 2:2.2 Fit the logistic regression model and interpret the parameter estimates
+
+```{r}
+model22 <- glm(x/n ~ logdos, family = binomial(link=logit), weight = n, data = data22)
+summary(model22)
+```
+
+```{r}
+# Extract parameter estimates
+intercept_est <- coef(model22)[1]
+slope_est <- coef(model22)[2]
+
+cat("Intercept:", round(intercept_est, 4), "\n")
+cat("Slope for log(dose):", round(slope_est, 4), "\n")
+```
+
+```{r}
+# Calculate odds ratio for slope parameter
+odds_ratio <- exp(slope_est)
+cat("Odds Ratio for log(dose):", round(odds_ratio, 4), "\n")
+
+# Calculate confidence interval for odds ratio
+odds_ratio_ci <- exp(confint(model22)[2, ])
+cat("95% CI for Odds Ratio:", round(odds_ratio_ci, 4), "\n")
+```
+
+$$Logistic\enspace regression:P(Y=1|X=x)=\pi(x)=\frac{exp(\beta_0+\beta_1 x)}{1+exp(\beta_0+\beta_1 x)}$$
+Parameter Interpretation: The intercept($\beta_0$) is 0.68702 and the
+slope($\beta_1$) is 0.52037 represent the baseline of log odds and the
+effect of log dose, respectively. The detailed explanation and proof
+shown as follows.
+
+1.  Intercept($\beta_0 = 0.68702$): When log(dose) = 0, the log-odds of
+    tumor occurrence is 0.68702, corresponding to a probability of
+    $P(Y=1|X=0)=\pi(0)=\frac{exp(\beta_0)}{1+exp(\beta_0)}=\frac{exp(0.68702)}{1+exp(0.68702)}=0.6653$.
+
+2.  Slope parameter($\beta_1 = 0.52037$): For each one-unit increase in
+    log(dose), the log-odds of tumor occurrence increases by 0.52037,
+    which corresponds to an increase in odds by 68.3%. \begin{equation*}
+    \begin{aligned}
+    log\enspace OR &=log[\frac{\pi(x+1)}{1-\pi(x+1)}/\frac{\pi(x)}{1-\pi(x)}]\\
+    &=logit\enspace \pi(x+1)-logit\enspace \pi(x)\\
+    &=\beta_0+\beta_1 (x+1)-(\beta_0+\beta_1 x)\\
+    &=\beta_1\\
+    &=0.52037
+    \end{aligned}
+    \end{equation*}
+
+3.  Statistical significance: The slope of the model is significant (p
+    \< 0.001), indicating a significant positive effect of dose on tumor
+    risk, with the risk increasing as the dose increases.
+
+## 2:2.3 Find covariance matrix, parameter correlation, confidence intervals, and risk at specific dose
+
+```{r}
+# Find the covariance matrix for the estimates
+cov_matrix <- vcov(model22)
+cov_matrix
+```
+
+```{r}
+# Assess if parameters are correlated
+cor_matrix <- cov2cor(cov_matrix)
+cor_matrix
+```
+
+Correlation between intercept and slope is 0.655691, indicating the
+moderate correlation between parameters detected.
+
+```{r}
+# Find 95% confidence intervals for the parameters
+conf_int <- confint.default(model22,level=0.95)
+cat("95% Confidence Intervals:\n")
+print(conf_int)
+```
+
+95% confidence intervals for intercept is [0.182, 1.192], and 95%
+confidence intervals for logdos is [0.354, 0.687].
+
+```{r}
+# Find 95% confidence interval for tumor risk at log(dose) = -1.39
+# Create prediction data frame
+target_logdos <- data.frame(logdos = -1.39)
+
+# Get prediction on log-odds scale with standard error
+pred_logit <- predict(model22, newdata = target_logdos, se.fit = TRUE)
+
+```
+
+```{r}
+# Extract predicted log-odds and standard error
+log_odds_est <- pred_logit$fit
+log_odds_se <- pred_logit$se.fit
+
+# Calculate confidence interval on log-odds scale
+ci_log_odds_lower <- log_odds_est - 1.96 * log_odds_se
+ci_log_odds_upper <- log_odds_est + 1.96 * log_odds_se
+
+# Convert to probability scale using logistic function
+risk_est <- plogis(log_odds_est)
+ci_risk_lower <- plogis(ci_log_odds_lower)
+ci_risk_upper <- plogis(ci_log_odds_upper)
+
+cat("Estimated tumor risk at log(dose)=-1.39 :", round(risk_est, 4), "\n")
+cat("95% CI for tumor risk: [", round(ci_risk_lower, 4), ",", round(ci_risk_upper, 4), "]\n")
+```
+
+When the log(dose)=-1.39, estimated tumor risk is 0.4909 and the 95%
+confidence interval for the risk at that level is [0.3941,0.5885].
+
+## 2:2.4 Perform a Wald-test
+
+$$H_0:\beta_1=0 ; H_a:\beta_1\neq0.$$
+
+```{r}
+# The logistic regression model
+#model22 <- glm(x/n ~ logdos, family = binomial(link=logit), weight = n, data = data22)
+summary_model22 <- summary(model22)
+
+# Extract coefficient estimate and standard error for slope
+beta1_hat <- coef(model22)[2]
+se_beta1 <- summary_model22$coefficients[2, 2]
+
+cat("Parameter estimates from model:\n")
+cat("β₁ (slope) estimate:", round(beta1_hat, 4), "\n")
+cat("Standard error of β₁:", round(se_beta1, 4), "\n\n")
+```
+
+```{r}
+# Manual calculation of Wald test statistic
+wald_statistic <- beta1_hat / se_beta1
+cat("Manual calculation of Wald statistic:\n")
+cat("W =", round(beta1_hat, 4), "/", round(se_beta1, 4), "=", 
+    round(wald_statistic, 4), "\n\n")
+
+# Calculate p-value
+p_value_manual <- 2 * (1 - pnorm(abs(wald_statistic)))
+cat("Manual p-value calculation:\n")
+cat("p-value = 2 × (1 - Φ(|W|)) = 2 × (1 - Φ(", round(abs(wald_statistic), 4), "))\n")
+cat("Manual p-value:", format.pval(p_value_manual), "\n")
+
+```
+
+```{r}
+# Compare with R's output
+r_wald_statistic <- summary_model22$coefficients[2, 3]
+cat("Wald statistic from R output:", round(r_wald_statistic, 4), "\n")
+
+# Compare with R's p-value
+r_p_value <- summary_model22$coefficients[2, 4]
+r_p_value
+```
+
+We constructed the Wald test, calculated the Wald statistic is
+$Z_W=37.457$, and get the p-value \< 0.001. That means by using Wald
+test we reject the null hypothesis $\beta_1 =0$, i.e. the log(dose) do
+have effect on Tumor risk.
+
+## 2:2.5 Investigate the relationship between sample size and variance of parameter estimates
+
+```{r}
+#original covariance matrix
+logdos<-c(-7.60,-6.22,-4.60,-3.00,-1.39,0.92)
+n<-c(18,19,28,32,28,40)
+x<-c(1,2,4,9,12,32)
+data22 <- data.frame(logdos,x,n)
+model22<-glm(x/n~logdos, family = binomial(link=logit), weights=n, data=data22)
+vcov(model22)
+for (i in 1:3) {
+  data22_new <- data.frame(logdos = data22[,"logdos"], data22[,c(2,3)] * 10^i)
+  model22_new<-glm(x/n~logdos, family = binomial(link=logit), weights=n, data=data22_new)
+  cat("multiply 10^",i,"\n")
+  print(vcov(model22_new))
+}
+```

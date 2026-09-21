@@ -1,0 +1,145 @@
+---
+title: "computer Assignment 1"
+author: "Min Zhu & Ziyi Wang"
+date: "`r Sys.Date()`"
+output:
+  word_document: default
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include=FALSE}
+# install.packages("RCurl")
+```
+
+```{r}
+library(RCurl)
+```
+
+```{r}
+# loading data
+set.seed(031026) 
+länk <- "https://raw.githubusercontent.com/mskoldSU/MT5003_HT17/master/Projekt/proj_data.csv"
+data_individ <- read.csv(text = getURL(länk))
+idx <- sample(1:nrow(data_individ), 1000)
+data_individ <- data_individ[idx, ]
+save(data_individ, file = "proj_data.Rdata")
+head(data_individ)
+```
+
+```{r}
+load("proj_data.Rdata")
+```
+
+```{r}
+y <- matrix(data_individ$Resultat, ncol = 1)
+y <- as.numeric(y)
+X <- model.matrix(Resultat ~  Kon + Alder + Utbildare, 
+                data = data_individ)
+head(X)
+```
+
+```{r}
+head(data_individ[,-1])
+```
+
+```{r, code = readLines("funktioner.R")}
+source("funktioner.R")
+```
+
+```{r}
+# Using R-package directly
+model1 <- glm(Resultat ~ Kon + Alder + Utbildare,
+              data = data_individ,
+              family = "binomial")
+summary(model1)
+```
+
+```{r}
+# coefficient of glm method
+theta_mo <- coef(model1)
+theta_mo <- as.numeric(theta_mo)
+```
+
+## Test 2
+
+```{r}
+# Using NR method
+theta0 = c(0,0,0,0)
+max_iter <- 100
+for (i in 1:max_iter){
+  theta0 <- NR(theta0, niter=1, y, X)
+  theta_hat <- theta0
+  if (all(round(theta_hat, 2) == round(theta_mo, 2))) {
+    cat("niter =", i,"reaches two-digits accuracy")
+    break
+  }
+}
+```
+
+## Test 3
+
+```{r}
+# Calculate ML-estimates standard errors
+ML_Std_Error <- function(theta_hat, y, X){
+  fisher <- I(theta_hat, y, X)
+  fisher_inv <- solve(fisher) 
+  ml_std_error <- sqrt(diag(fisher_inv))
+}
+
+ML_esti_se <- ML_Std_Error(theta_hat, y, X)
+print(ML_esti_se)
+```
+
+#### Conclusion: The comparison between the standard errors of the ML estimates and those from the GLM model shows agreement to at least four-digit accuracy, indicating that R is using this method.
+
+## Test 4
+
+```{r}
+# Using parametric Boothstrap
+# Set the number of bootstrap samples
+n <- 1000
+
+# Store bootstrap parameter estimates
+boot_esti <- matrix(NA, nrow = n, ncol = length(theta_hat))
+
+# My age: 22; sex: woman
+# Store bootstrap probabilities for 22-year-old privately educated women
+boot_probs <- numeric(n)
+
+# Parametric bootstrap
+for (b in 1:n) {
+  # Generate new response values using estimated probabilities
+  prob_esti <- 1 / (1 + exp(-X %*% theta_hat))
+  y_new <- rbinom(n = length(y), size = 1, prob = prob_esti)
+
+  # Estimate parameters
+  theta_boot <- NR(theta0, niter = 1, y_new, X)
+  boot_esti[b, ] <- theta_boot
+
+  # Create predictor vector for 22-year-old privately educated woman
+  x_new <- c(1, 0, 22, 0)
+
+  # Calculate probability for this individual
+  linear_pred <- sum(x_new * theta_boot)
+  prob <- 1 / (1 + exp(-linear_pred))
+  boot_probs[b] <- prob
+}
+```
+
+```{r}
+# Calculate bootstrap standard errors
+boot_se <- apply(boot_esti, 2, sd)
+print(boot_se)
+```
+
+```{r}
+# Calculate 95% CI for the probability
+ci_prob <- quantile(boot_probs, probs = c(0.025, 0.975))
+print(ci_prob)
+```
