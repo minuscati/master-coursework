@@ -1,6 +1,6 @@
 # Introduction to Biostatistics
 
-Selected work from KI's Introduction to Biostatistics course, progressing from descriptive epidemiology to prediction and causal analysis.
+Selected work from the Introduction to Biostatistics course, progressing from descriptive epidemiology to prediction and causal analysis.
 
 ## Contents
 
@@ -8,7 +8,6 @@ Selected work from KI's Introduction to Biostatistics course, progressing from d
 - `assignment-2` - development and evaluation of a coronary-heart-disease prediction model, including discrimination and calibration.
 - `final-project` - causal analysis of maternal smoking and low birth weight using regression, standardization, and marginal effect measures.
 
-The final rendered submission is included where available; otherwise the final R Markdown or Quarto source is provided. Restricted course datasets and papers are omitted.
 
 ## Tools
 
