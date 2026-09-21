@@ -1,7 +1,5 @@
 # Numerical Algorithms for Data-Intensive Science
 
-Selected coursework from KTH's Numerical Algorithms for Data-Intensive Science. The three team assignments were completed with Elena Amadei and combine mathematical derivations with MATLAB implementations.
-
 ## Contents
 
 - `homework-1` - Gram-Schmidt variants, greedy column selection, randomized SVD, and image/video approximation experiments.
